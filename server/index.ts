@@ -82,10 +82,7 @@ export async function createApp() {
 (async () => {
   const { httpServer } = await createApp();
   const port = parseInt(process.env.PORT || "5000", 10);
-  httpServer.listen(
-    { port, host: "0.0.0.0", reusePort: true },
-    () => {
-      log(`AI Workflow serving on port ${port}`);
-    },
-  );
+  httpServer.listen(port, "0.0.0.0", () => {
+    log(`AI Workflow serving on port ${port}`);
+  });
 })();

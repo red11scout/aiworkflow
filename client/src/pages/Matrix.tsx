@@ -84,7 +84,7 @@ export default function Matrix() {
   const getUseCaseCode = useCallback(
     (useCaseId: string, fallbackIndex: number) => {
       const uc = useCases.find((u) => u.id === useCaseId);
-      return uc?.code || `UC-${String(fallbackIndex + 1).padStart(2, "0")}`;
+      return uc?.id || `UC-${String(fallbackIndex + 1).padStart(2, "0")}`;
     },
     [useCases],
   );

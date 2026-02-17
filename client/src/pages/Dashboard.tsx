@@ -56,7 +56,7 @@ export default function Dashboard() {
   const allScenarios = (scenarios as any[]) || [];
 
   // Initialize executive summary from scenario data
-  const dashboard = activeScenario?.dashboard as any;
+  const dashboard = activeScenario?.executiveDashboard as any;
   if (dashboard?.executiveSummary && !summaryInitialized) {
     setExecutiveSummary(dashboard.executiveSummary);
     setSummaryInitialized(true);
@@ -65,7 +65,7 @@ export default function Dashboard() {
   const priorities = (activeScenario?.priorities as any[]) || [];
   const useCases = (activeScenario?.useCases as any[]) || [];
   const readiness = (activeScenario?.readiness as any[]) || [];
-  const frictionItems = (activeScenario?.frictionMapping as any[]) || [];
+  const frictionItems = (activeScenario?.frictionPoints as any[]) || [];
 
   const getUseCaseName = useCallback(
     (useCaseId: string) => {

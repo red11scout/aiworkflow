@@ -26,7 +26,8 @@ export async function registerRoutes(server: Server, app: Express) {
   });
 
   app.post("/api/projects", async (req, res) => {
-    const { ownerToken, name, companyName, industry, description, rawImport } = req.body;
+    const { name, companyName, industry, description, rawImport } = req.body;
+    const ownerToken = req.body.ownerToken || (req.headers["x-owner-token"] as string);
     if (!ownerToken || !name || !companyName) {
       return res.status(400).json({ message: "Missing required fields" });
     }
@@ -93,6 +94,90 @@ export async function registerRoutes(server: Server, app: Express) {
   app.delete("/api/projects/:id", async (req, res) => {
     await storage.deleteProject(req.params.id);
     res.json({ success: true });
+  });
+
+  // Import JSON data into an existing project
+  app.post("/api/projects/:id/import", async (req, res) => {
+    const project = await storage.getProject(req.params.id);
+    if (!project) return res.status(404).json({ message: "Project not found" });
+
+    const { rawJson } = req.body;
+    if (!rawJson) return res.status(400).json({ message: "Missing rawJson" });
+
+    try {
+      // Update project with raw import
+      await storage.updateProject(project.id, {
+        rawImport: rawJson,
+        companyName: rawJson.companyName || project.companyName,
+        industry: rawJson.industry || project.industry,
+        status: "in_progress",
+      });
+
+      // Parse and create/update base scenario
+      const parsed = parseImportedJSON(rawJson);
+
+      // Check if base scenario exists
+      const existing = await storage.getActiveScenario(project.id);
+      if (existing) {
+        await storage.updateScenario(existing.id, {
+          companyOverview: parsed.companyOverview,
+          strategicThemes: parsed.strategicThemes,
+          businessFunctions: parsed.businessFunctions,
+          frictionPoints: parsed.frictionPoints,
+          useCases: parsed.useCases,
+          benefits: parsed.benefits,
+          readiness: parsed.readiness,
+          priorities: parsed.priorities,
+          executiveSummary: parsed.executiveSummary,
+          executiveDashboard: parsed.executiveDashboard,
+          scenarioAnalysis: parsed.scenarioAnalysis,
+          multiYear: parsed.multiYear,
+          frictionRecovery: parsed.frictionRecovery,
+          analysisSummary: parsed.analysisSummary,
+          completedSteps: [0],
+        });
+      } else {
+        await storage.createScenario({
+          projectId: project.id,
+          name: "Base Case",
+          versionType: "base",
+          isActive: true,
+          companyOverview: parsed.companyOverview,
+          strategicThemes: parsed.strategicThemes,
+          businessFunctions: parsed.businessFunctions,
+          frictionPoints: parsed.frictionPoints,
+          useCases: parsed.useCases,
+          benefits: parsed.benefits,
+          readiness: parsed.readiness,
+          priorities: parsed.priorities,
+          executiveSummary: parsed.executiveSummary,
+          executiveDashboard: parsed.executiveDashboard,
+          scenarioAnalysis: parsed.scenarioAnalysis,
+          multiYear: parsed.multiYear,
+          frictionRecovery: parsed.frictionRecovery,
+          analysisSummary: parsed.analysisSummary,
+          currentStep: 0,
+          completedSteps: [0],
+        });
+      }
+
+      res.json({
+        success: true,
+        summary: {
+          themes: parsed.strategicThemes.length,
+          functions: parsed.businessFunctions.length,
+          frictionPoints: parsed.frictionPoints.length,
+          useCases: parsed.useCases.length,
+          benefits: parsed.benefits.length,
+        },
+        companyName: rawJson.companyName,
+        industry: rawJson.industry || "",
+        companyOverview: parsed.companyOverview,
+      });
+    } catch (err: any) {
+      console.error("Error parsing import:", err.message);
+      res.status(400).json({ message: `Import failed: ${err.message}` });
+    }
   });
 
   // =====================================================================
@@ -172,10 +257,23 @@ export async function registerRoutes(server: Server, app: Express) {
 
   // Update a specific section of a scenario
   app.put("/api/scenarios/:id/section/:step", async (req, res) => {
-    const step = parseInt(req.params.step);
     const { data } = req.body;
 
-    const fieldMap: Record<number, string> = {
+    // Support both step numbers and section name strings
+    const nameMap: Record<string, string> = {
+      company_overview: "companyOverview",
+      strategic_themes: "strategicThemes",
+      business_functions: "businessFunctions",
+      friction_points: "frictionPoints",
+      use_cases: "useCases",
+      benefits: "benefits",
+      readiness: "readiness",
+      priorities: "priorities",
+      workflow_maps: "workflowMaps",
+      executive_summary: "executiveSummary",
+    };
+
+    const stepNumMap: Record<number, string> = {
       0: "companyOverview",
       1: "strategicThemes",
       2: "businessFunctions",
@@ -186,9 +284,12 @@ export async function registerRoutes(server: Server, app: Express) {
       7: "priorities",
     };
 
-    const field = fieldMap[step];
+    const stepParam = req.params.step;
+    const stepNum = parseInt(stepParam);
+    const field = isNaN(stepNum) ? nameMap[stepParam] : stepNumMap[stepNum];
+
     if (!field)
-      return res.status(400).json({ message: "Invalid step number" });
+      return res.status(400).json({ message: "Invalid step identifier" });
 
     const scenario = await storage.updateScenario(req.params.id, {
       [field]: data,
