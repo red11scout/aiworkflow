@@ -2,7 +2,54 @@ import { ReactNode } from "react";
 import { useLocation } from "wouter";
 import ThemeToggle from "./ThemeToggle";
 import StepperNav, { getStepFromPath } from "./StepperNav";
-import { ArrowLeft, Home } from "lucide-react";
+import AIAssistant from "./AIAssistant";
+import { Home } from "lucide-react";
+
+const STEP_SECTIONS = [
+  "upload", "themes", "functions", "friction",
+  "usecases", "benefits", "workflows", "readiness", "matrix", "dashboard",
+];
+
+const STEP_PROMPTS: Record<string, string[]> = {
+  themes: [
+    "Help me improve this target state description",
+    "Suggest a secondary driver for this theme",
+    "Validate the strategic alignment of these themes",
+  ],
+  functions: [
+    "Suggest a realistic target for this KPI",
+    "Help me describe this business function better",
+  ],
+  friction: [
+    "Help describe this friction point",
+    "Suggest severity assessment rationale",
+  ],
+  usecases: [
+    "Recommend the best agentic pattern for this use case",
+    "Improve this use case description",
+    "Explain why this AI primitive is relevant",
+  ],
+  benefits: [
+    "Validate these financial assumptions",
+    "Explain the benefit calculation methodology",
+  ],
+  workflows: [
+    "Suggest improvements to this workflow",
+    "Explain what changes AI introduces to this process",
+  ],
+  readiness: [
+    "Help assess data readiness for this use case",
+    "Suggest ways to improve organizational readiness",
+  ],
+  matrix: [
+    "Explain the prioritization methodology",
+    "Recommend which use cases to implement first",
+  ],
+  dashboard: [
+    "Write an executive summary of these findings",
+    "Suggest key recommendations based on this analysis",
+  ],
+};
 
 interface LayoutProps {
   children: ReactNode;
@@ -10,6 +57,7 @@ interface LayoutProps {
   companyName?: string;
   completedSteps?: number[];
   showStepper?: boolean;
+  aiContext?: any;
 }
 
 export default function Layout({
@@ -18,9 +66,11 @@ export default function Layout({
   companyName,
   completedSteps,
   showStepper = true,
+  aiContext,
 }: LayoutProps) {
   const [location, navigate] = useLocation();
   const currentStep = getStepFromPath(location);
+  const currentSection = STEP_SECTIONS[currentStep] || "general";
 
   return (
     <div className="min-h-screen bg-background">
@@ -81,6 +131,15 @@ export default function Layout({
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 py-6">{children}</main>
+
+      {/* AI Assistant - shown on project pages */}
+      {projectId && showStepper && (
+        <AIAssistant
+          section={currentSection}
+          context={aiContext || { companyName, step: currentSection }}
+          suggestedPrompts={STEP_PROMPTS[currentSection] || []}
+        />
+      )}
     </div>
   );
 }
