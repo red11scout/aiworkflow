@@ -311,31 +311,58 @@ export function generateHTMLReport(
 
   ${workflows.length > 0 ? `
   <h2>Workflow Comparisons</h2>
-  ${workflows.map((w: any) => `
+  ${workflows.map((w: any) => {
+    const m = w.comparisonMetrics || {};
+    const getImprovement = (metric: any) => typeof metric === "string" ? metric : metric?.improvement || "";
+    const getAfter = (metric: any) => typeof metric === "string" ? metric : metric?.after || "—";
+    return `
     <h3>${w.useCaseName} — ${w.agenticPattern || "Standard"}</h3>
     <div class="metric-bar">
       <div class="metric">
-        <div class="metric-label">Time</div>
-        <div class="metric-value">${w.comparisonMetrics?.timeReduction?.after || "—"}</div>
-        <div class="metric-improvement">${w.comparisonMetrics?.timeReduction?.improvement || ""}</div>
+        <div class="metric-label">Time Reduction</div>
+        <div class="metric-value">${getAfter(m.timeReduction)}</div>
+        <div class="metric-improvement">${getImprovement(m.timeReduction)}</div>
       </div>
       <div class="metric">
-        <div class="metric-label">Cost</div>
-        <div class="metric-value">${w.comparisonMetrics?.costReduction?.after || "—"}</div>
-        <div class="metric-improvement">${w.comparisonMetrics?.costReduction?.improvement || ""}</div>
+        <div class="metric-label">Cost Reduction</div>
+        <div class="metric-value">${getAfter(m.costReduction)}</div>
+        <div class="metric-improvement">${getImprovement(m.costReduction)}</div>
       </div>
       <div class="metric">
         <div class="metric-label">Quality</div>
-        <div class="metric-value">${w.comparisonMetrics?.qualityImprovement?.after || "—"}</div>
-        <div class="metric-improvement">${w.comparisonMetrics?.qualityImprovement?.improvement || ""}</div>
+        <div class="metric-value">${getAfter(m.qualityImprovement)}</div>
+        <div class="metric-improvement">${getImprovement(m.qualityImprovement)}</div>
       </div>
       <div class="metric">
         <div class="metric-label">Throughput</div>
-        <div class="metric-value">${w.comparisonMetrics?.throughputIncrease?.after || "—"}</div>
-        <div class="metric-improvement">${w.comparisonMetrics?.throughputIncrease?.improvement || ""}</div>
+        <div class="metric-value">${getAfter(m.throughputIncrease)}</div>
+        <div class="metric-improvement">${getImprovement(m.throughputIncrease)}</div>
       </div>
     </div>
-  `).join("")}
+    <div class="workflow-compare">
+      <div class="workflow-box">
+        <h4 style="color:#991b1b;">Current Process</h4>
+        ${(w.currentState || []).map((step: any, i: number) => `
+          <div style="padding:8px;margin-bottom:4px;border-left:3px solid ${step.isBottleneck ? '#ef4444' : '#e2e8f0'};background:${step.isBottleneck ? '#fef2f2' : '#f8fafc'};border-radius:4px;">
+            <div style="font-size:12px;font-weight:600;">${i+1}. ${step.name}</div>
+            <div style="font-size:11px;color:#64748b;">${step.actorName || step.actorType} &middot; ${step.duration}</div>
+            ${step.painPoints?.length ? `<div style="font-size:10px;color:#ef4444;margin-top:2px;">${step.painPoints.join(", ")}</div>` : ""}
+          </div>
+        `).join("")}
+      </div>
+      <div class="workflow-box">
+        <h4 style="color:#166534;">AI-Powered Process</h4>
+        ${(w.targetState || []).map((step: any, i: number) => `
+          <div style="padding:8px;margin-bottom:4px;border-left:3px solid ${step.isAIEnabled ? '#36bf78' : '#e2e8f0'};background:${step.isAIEnabled ? '#f0fdf4' : '#f8fafc'};border-radius:4px;">
+            <div style="font-size:12px;font-weight:600;">${i+1}. ${step.name}</div>
+            <div style="font-size:11px;color:#64748b;">${step.actorName || step.actorType} &middot; ${step.duration} ${step.isHumanInTheLoop ? '<span style="color:#d97706;font-weight:600;">HITL</span>' : ""}</div>
+            ${step.aiCapabilities?.length ? `<div style="font-size:10px;color:#36bf78;margin-top:2px;">${step.aiCapabilities.join(", ")}</div>` : ""}
+          </div>
+        `).join("")}
+      </div>
+    </div>
+    `;
+  }).join("")}
   ` : ""}
 
   <h2>Priority Roadmap</h2>
@@ -364,6 +391,24 @@ export function generateHTMLReport(
     </div>
   </div>
   ` : ""}
+
+  ${readiness.length > 0 ? `
+  <h2>Readiness &amp; Token Modeling</h2>
+  <table>
+    <tr><th>Use Case</th><th>Data</th><th>Tech</th><th>Org</th><th>Gov</th><th>Readiness</th><th>TTV (mo)</th><th>Monthly Tokens</th><th>Annual Token Cost</th></tr>
+    ${readiness.map((r: any) => `<tr><td>${r.useCaseName}</td><td>${r.dataAvailability}</td><td>${r.technicalInfrastructure}</td><td>${r.organizationalCapacity}</td><td>${r.governance}</td><td><strong>${r.readinessScore?.toFixed?.(1) || r.readinessScore}</strong></td><td>${r.timeToValue}</td><td>${(r.monthlyTokens || 0).toLocaleString()}</td><td>${r.annualTokenCost || "—"}</td></tr>`).join("")}
+  </table>
+  ` : ""}
+
+  <h2>Methodology &amp; Assumptions</h2>
+  <div style="font-size:12px; color:#64748b; line-height:1.7;">
+    <p><strong>Readiness Scoring:</strong> Organizational Capacity (30%), Data Availability (30%), Technical Infrastructure (20%), Governance (20%)</p>
+    <p><strong>Priority Score:</strong> Readiness Score (50%) + Normalized Annual Value (50%)</p>
+    <p><strong>Tier Assignment:</strong> Champions (Value&ge;5.5 &amp; Readiness&ge;5.5), Quick Wins (Value&lt;5.5 &amp; Readiness&ge;5.5), Strategic (Value&ge;5.5 &amp; Readiness&lt;5.5), Foundation (both&lt;5.5)</p>
+    <p><strong>Benefit Categories:</strong> Cost Savings, Revenue Uplift, Risk Mitigation, Cash Flow Improvement</p>
+    <p><strong>Scenarios:</strong> Conservative (&times;0.6), Base Case (as-calculated), Aggressive (&times;1.3)</p>
+    <p><strong>Token Pricing:</strong> Input $3/1M tokens, Output $15/1M tokens (Claude Sonnet 4.5)</p>
+  </div>
 
   <div class="footer">
     BlueAlly AI Workflow Assessment &mdash; ${project.companyName} &mdash; ${scenario.name} &mdash; ${new Date().toLocaleDateString()}

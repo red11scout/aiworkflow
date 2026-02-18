@@ -41,34 +41,46 @@ export default function StepperNav({
   const [, navigate] = useLocation();
 
   return (
-    <nav className="bg-card border-b border-border overflow-x-auto">
-      <div className="max-w-7xl mx-auto px-4">
-        <div className="flex items-center gap-1 py-2 min-w-max">
-          {STEPS.map(({ path, label, shortLabel, icon: Icon, step }) => {
+    <nav className="glass-header bg-card/60 border-b border-border/50 overflow-x-auto">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6">
+        <div className="flex items-center gap-1 py-2.5 min-w-max">
+          {STEPS.map(({ path, label, shortLabel, icon: Icon, step }, idx) => {
             const isActive = step === currentStep;
             const isCompleted = completedSteps.includes(step);
 
             return (
-              <button
-                key={path}
-                onClick={() => navigate(`/project/${projectId}/${path}`)}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all whitespace-nowrap",
-                  isActive
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : isCompleted
-                      ? "bg-accent/10 text-accent hover:bg-accent/20"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted",
+              <div key={path} className="flex items-center">
+                <button
+                  onClick={() => navigate(`/project/${projectId}/${path}`)}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all whitespace-nowrap",
+                    isActive
+                      ? "text-white shadow-sm btn-glow"
+                      : isCompleted
+                        ? "bg-accent/10 text-accent hover:bg-accent/20"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/80",
+                  )}
+                  style={
+                    isActive
+                      ? {
+                          background:
+                            "linear-gradient(135deg, #001278, #02a2fd)",
+                        }
+                      : undefined
+                  }
+                >
+                  {isCompleted && !isActive ? (
+                    <Check className="w-3.5 h-3.5" />
+                  ) : (
+                    <Icon className="w-3.5 h-3.5" />
+                  )}
+                  <span className="hidden lg:inline">{label}</span>
+                  <span className="lg:hidden">{shortLabel}</span>
+                </button>
+                {idx < STEPS.length - 1 && (
+                  <div className="w-3 h-px bg-border/50 mx-0.5 hidden sm:block" />
                 )}
-              >
-                {isCompleted && !isActive ? (
-                  <Check className="w-3.5 h-3.5" />
-                ) : (
-                  <Icon className="w-3.5 h-3.5" />
-                )}
-                <span className="hidden lg:inline">{label}</span>
-                <span className="lg:hidden">{shortLabel}</span>
-              </button>
+              </div>
             );
           })}
         </div>

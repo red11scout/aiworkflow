@@ -38,8 +38,8 @@
   --color-blueally-navy: #001278;
   --color-blueally-blue: #02a2fd;
   --color-blueally-green: #36bf78;
-  --color-blueally-dark: #0a192f;
-  --color-blueally-light: #f8faff;
+  --color-blueally-dark: #0a0e27;
+  --color-blueally-light: #f0f4ff;
 
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-heading: 'Inter', system-ui, sans-serif;
@@ -48,13 +48,16 @@
   --radius: 0.75rem;
 }
 
+/* =====================================================================
+   LIGHT MODE — clean, airy whites with navy accents
+   ===================================================================== */
 :root {
-  --background: 220 50% 99%;
-  --foreground: 215 50% 15%;
+  --background: 220 50% 98%;
+  --foreground: 222 47% 11%;
   --card: 0 0% 100%;
-  --card-foreground: 215 50% 15%;
+  --card-foreground: 222 47% 11%;
   --popover: 0 0% 100%;
-  --popover-foreground: 215 50% 15%;
+  --popover-foreground: 222 47% 11%;
   --primary: 230 100% 27%;
   --primary-foreground: 0 0% 100%;
   --secondary: 200 99% 50%;
@@ -65,8 +68,8 @@
   --accent-foreground: 0 0% 100%;
   --destructive: 0 84.2% 60.2%;
   --destructive-foreground: 210 40% 98%;
-  --border: 220 20% 90%;
-  --input: 220 20% 90%;
+  --border: 220 15% 91%;
+  --input: 220 15% 91%;
   --ring: 230 100% 27%;
   --chart-1: 230 100% 27%;
   --chart-2: 148 56% 48%;
@@ -75,31 +78,34 @@
   --chart-5: 30 90% 50%;
 }
 
+/* =====================================================================
+   DARK MODE — deep navy SaaS aesthetic (dark-first design)
+   ===================================================================== */
 .dark {
-  --background: 222 47% 8%;
-  --foreground: 210 40% 95%;
-  --card: 222 47% 11%;
-  --card-foreground: 210 40% 95%;
-  --popover: 222 47% 11%;
-  --popover-foreground: 210 40% 95%;
-  --primary: 210 100% 60%;
-  --primary-foreground: 222 47% 8%;
+  --background: 230 55% 7%;
+  --foreground: 220 30% 94%;
+  --card: 230 45% 10%;
+  --card-foreground: 220 30% 94%;
+  --popover: 230 45% 10%;
+  --popover-foreground: 220 30% 94%;
+  --primary: 200 99% 50%;
+  --primary-foreground: 230 55% 7%;
   --secondary: 200 99% 50%;
-  --secondary-foreground: 222 47% 8%;
-  --muted: 217 33% 17%;
-  --muted-foreground: 215 20% 65%;
+  --secondary-foreground: 230 55% 7%;
+  --muted: 230 30% 14%;
+  --muted-foreground: 220 18% 58%;
   --accent: 148 56% 48%;
-  --accent-foreground: 222 47% 8%;
+  --accent-foreground: 230 55% 7%;
   --destructive: 0 62% 50%;
   --destructive-foreground: 210 40% 98%;
-  --border: 217 33% 20%;
-  --input: 217 33% 20%;
-  --ring: 210 100% 60%;
-  --chart-1: 210 100% 60%;
+  --border: 230 25% 16%;
+  --input: 230 25% 16%;
+  --ring: 200 99% 50%;
+  --chart-1: 200 99% 50%;
   --chart-2: 148 56% 48%;
-  --chart-3: 200 99% 50%;
-  --chart-4: 280 60% 60%;
-  --chart-5: 30 90% 50%;
+  --chart-3: 280 60% 60%;
+  --chart-4: 30 90% 50%;
+  --chart-5: 230 100% 27%;
 }
 
 @layer base {
@@ -120,6 +126,7 @@
 }
 
 @layer utilities {
+  /* Brand gradient text */
   .text-gradient {
     background: linear-gradient(135deg, var(--color-blueally-navy), var(--color-blueally-blue));
     -webkit-background-clip: text;
@@ -127,6 +134,18 @@
     background-clip: text;
   }
 
+  /* Frosted glass effect for header */
+  .glass-header {
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+  }
+
+  /* Glow effect for primary buttons on hover */
+  .btn-glow:hover {
+    box-shadow: 0 0 20px rgba(2, 162, 253, 0.25), 0 0 40px rgba(2, 162, 253, 0.1);
+  }
+
+  /* Thin scrollbars */
   .scrollbar-thin::-webkit-scrollbar {
     width: 6px;
   }

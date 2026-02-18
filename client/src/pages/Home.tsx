@@ -126,11 +126,15 @@ export default function Home() {
   return (
     <Layout showStepper={false}>
       {/* Hero Section */}
-      <div className="text-center py-12">
-        <h1 className="text-4xl sm:text-5xl font-bold tracking-tight mb-4">
+      <div className="text-center py-16">
+        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-muted/80 border border-border/50 text-xs font-medium text-muted-foreground mb-6">
+          <Sparkles className="w-3.5 h-3.5 text-[#02a2fd]" />
+          Powered by Claude AI
+        </div>
+        <h1 className="text-4xl sm:text-5xl font-bold tracking-tight mb-5">
           <span className="text-gradient">AI Workflow Orchestration</span>
         </h1>
-        <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-8">
+        <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed">
           Transform AI assessments into actionable implementation plans. Upload
           your data, analyze strategic themes, map use cases, and generate
           prioritized workflows.
@@ -288,7 +292,7 @@ export default function Home() {
             {projects.map((project) => (
               <Card
                 key={project.id}
-                className="group cursor-pointer hover:shadow-md hover:border-primary/30 transition-all duration-200 relative"
+                className="group cursor-pointer hover:shadow-lg hover:shadow-primary/5 hover:border-primary/30 hover:-translate-y-0.5 transition-all duration-200 relative rounded-xl"
                 onClick={() =>
                   navigate(`/project/${project.id}/upload`)
                 }

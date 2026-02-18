@@ -72,11 +72,12 @@ export function calculateExpectedValue(
 // READINESS CALCULATIONS
 // -------------------------------------------------------------------------
 
+// Weights aligned with assumptions Excel: Org 30%, Data 30%, Tech 20%, Gov 20%
 const READINESS_WEIGHTS = {
-  data: 0.3,
-  technical: 0.25,
-  organizational: 0.25,
-  governance: 0.2,
+  organizational: 0.30,
+  data: 0.30,
+  technical: 0.20,
+  governance: 0.20,
 };
 
 export function calculateReadinessScore(
@@ -86,9 +87,9 @@ export function calculateReadinessScore(
   governance: number,
 ): number {
   return (
+    organizational * READINESS_WEIGHTS.organizational +
     data * READINESS_WEIGHTS.data +
     technical * READINESS_WEIGHTS.technical +
-    organizational * READINESS_WEIGHTS.organizational +
     governance * READINESS_WEIGHTS.governance
   );
 }
@@ -136,21 +137,28 @@ export function calculateTTVScore(timeToValue: number): number {
   return Math.min(1, base + bonus);
 }
 
+// Priority = Readiness 50% + NormalizedValue 50% (per assumptions Excel)
+// TTV is kept as display-only, not used in priority scoring
 export function calculatePriorityScore(
   valueScore: number,
   readinessScore: number,
-  ttvScore: number,
+  _ttvScore?: number,
 ): number {
-  return valueScore * 0.5 + readinessScore * 0.3 + ttvScore * 0.2;
+  return readinessScore * 0.50 + valueScore * 0.50;
 }
 
+// Tier thresholds per assumptions Excel:
+// Champions: Value ≥ 5.5 AND Readiness ≥ 5.5 (high-high quadrant)
+// Quick Wins: Value < 5.5 AND Readiness ≥ 5.5
+// Strategic: Value ≥ 5.5 AND Readiness < 5.5
+// Foundation: Value < 5.5 AND Readiness < 5.5
 export function determinePriorityTier(
   valueScore: number,
   readinessScore: number,
 ): string {
-  if (valueScore >= 7 && readinessScore >= 6) return "Tier 1 — Champions";
-  if (readinessScore >= 6 && valueScore < 7) return "Tier 2 — Quick Wins";
-  if (valueScore >= 7 && readinessScore < 6) return "Tier 3 — Strategic";
+  if (valueScore >= 5.5 && readinessScore >= 5.5) return "Tier 1 — Champions";
+  if (valueScore < 5.5 && readinessScore >= 5.5) return "Tier 2 — Quick Wins";
+  if (valueScore >= 5.5 && readinessScore < 5.5) return "Tier 3 — Strategic";
   return "Tier 4 — Foundation";
 }
 
@@ -158,10 +166,10 @@ export function determineQuadrant(
   valueScore: number,
   readinessScore: number,
 ): string {
-  if (valueScore >= 6 && readinessScore >= 6) return "quick_win";
-  if (valueScore >= 6 && readinessScore < 6) return "strategic";
-  if (valueScore < 6 && readinessScore >= 6) return "fill_in";
-  return "deprioritize";
+  if (valueScore >= 5.5 && readinessScore >= 5.5) return "champions";
+  if (valueScore >= 5.5 && readinessScore < 5.5) return "strategic";
+  if (valueScore < 5.5 && readinessScore >= 5.5) return "quick_wins";
+  return "foundation";
 }
 
 export function determinePhase(priorityScore: number): string {

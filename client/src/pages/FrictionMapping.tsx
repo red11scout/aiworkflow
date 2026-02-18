@@ -22,6 +22,7 @@ import {
   Flame,
 } from "lucide-react";
 import { toast } from "sonner";
+import { FRICTION_TYPES } from "@shared/assumptions";
 
 interface FrictionPoint {
   id: string;
@@ -30,6 +31,7 @@ interface FrictionPoint {
   function: string;
   subFunction: string;
   frictionPoint: string;
+  frictionType?: string;
   severity: string;
   annualHours: number;
   hourlyRate: number;
@@ -485,6 +487,30 @@ export default function FrictionMapping() {
                             </button>
                           ))}
                         </div>
+                      </div>
+                      {/* Friction Type */}
+                      <div>
+                        <Label>Friction Type</Label>
+                        <select
+                          value={fp.frictionType || ""}
+                          onChange={(e) => {
+                            updateFrictionPoint(fp.id, "frictionType" as any, e.target.value);
+                            handleBlur();
+                          }}
+                          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring mt-1"
+                        >
+                          <option value="">Select type...</option>
+                          {FRICTION_TYPES.map((ft) => (
+                            <option key={ft.id} value={ft.id}>
+                              {ft.label}
+                            </option>
+                          ))}
+                        </select>
+                        {fp.frictionType && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {FRICTION_TYPES.find((ft) => ft.id === fp.frictionType)?.description}
+                          </p>
+                        )}
                       </div>
                       {/* Annual Hours */}
                       <div>

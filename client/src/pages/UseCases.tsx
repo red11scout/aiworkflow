@@ -26,6 +26,7 @@ import {
   getPatternById,
   type AgenticPattern,
 } from "@shared/patterns";
+import { DATA_TYPES } from "@shared/assumptions";
 
 // --- Types ---
 
@@ -398,13 +399,34 @@ function UseCaseCard({
 
         {/* Data Types & Integrations */}
         <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label className="text-xs text-muted-foreground">Data Types</Label>
-            <TagInput
-              tags={useCase.dataTypes || []}
-              onChange={(tags) => updateField("dataTypes", tags)}
-              placeholder="e.g. invoice data, CRM records..."
-            />
+            <div className="flex flex-wrap gap-2">
+              {DATA_TYPES.map((dt) => {
+                const isSelected = (useCase.dataTypes || []).includes(dt.id);
+                return (
+                  <button
+                    key={dt.id}
+                    type="button"
+                    onClick={() => {
+                      const current = useCase.dataTypes || [];
+                      const updated = isSelected
+                        ? current.filter((d) => d !== dt.id)
+                        : [...current, dt.id];
+                      updateField("dataTypes", updated);
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                      isSelected
+                        ? "border-[#02a2fd] bg-[#02a2fd]/10 text-[#02a2fd]"
+                        : "border-border bg-background text-muted-foreground hover:border-muted-foreground/50"
+                    }`}
+                    title={dt.description}
+                  >
+                    {dt.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Integrations</Label>

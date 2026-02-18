@@ -41,6 +41,7 @@ export interface FrictionPoint {
   function: string;
   subFunction: string;
   frictionPoint: string;
+  frictionType?: string;
   severity: string;
   annualHours: number;
   hourlyRate: number;
