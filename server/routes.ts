@@ -12,6 +12,7 @@ import {
 } from "./calculation-engine";
 import { SCENARIO_MULTIPLIERS } from "@shared/formulas";
 import { nanoid } from "nanoid";
+import type { WorkflowMap } from "@shared/types";
 
 export async function registerRoutes(server: Server, app: Express) {
   // =====================================================================
@@ -463,9 +464,18 @@ export async function registerRoutes(server: Server, app: Express) {
     }
   });
 
-  // AI workflow generation
+  // AI workflow generation — batch generates workflows for ALL use cases in a scenario
   app.post("/api/ai/generate-workflow", async (req, res) => {
-    const { useCase, frictionPoint, strategicTheme } = req.body;
+    const { scenarioId } = req.body;
+
+    if (!scenarioId) {
+      return res.status(400).json({ message: "Missing scenarioId" });
+    }
+
+    const scenario = await storage.getScenario(scenarioId);
+    if (!scenario) {
+      return res.status(404).json({ message: "Scenario not found" });
+    }
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
@@ -474,56 +484,137 @@ export async function registerRoutes(server: Server, app: Express) {
       });
     }
 
+    const useCases = (scenario.useCases as any[]) || [];
+    const frictionPoints = (scenario.frictionPoints as any[]) || [];
+
+    if (useCases.length === 0) {
+      return res.status(400).json({ message: "No use cases in scenario" });
+    }
+
     try {
       const { default: Anthropic } = await import("@anthropic-ai/sdk");
       const client = new Anthropic({ apiKey });
 
-      const response = await client.messages.create({
-        model: "claude-sonnet-4-5-20250929",
-        max_tokens: 2048,
-        system: `You are an AI workflow architect. Generate workflow visualizations comparing current manual processes with AI-powered alternatives. Return valid JSON only.`,
-        messages: [
-          {
-            role: "user",
-            content: `Generate a workflow comparison for this AI use case:
+      const workflowMaps: WorkflowMap[] = [];
 
-Use Case: ${useCase.name}
-Description: ${useCase.description}
-Function: ${useCase.function}
-Friction Point: ${frictionPoint || "N/A"}
-Strategic Theme: ${strategicTheme || "N/A"}
-AI Primitives: ${(useCase.aiPrimitives || []).join(", ")}
-Agentic Pattern: ${useCase.agenticPattern || "Not selected"}
+      for (const uc of useCases) {
+        const matchedFP = frictionPoints.find(
+          (fp: any) => fp.frictionPoint === uc.targetFriction,
+        );
 
-Return JSON with this structure:
+        const response = await client.messages.create({
+          model: "claude-sonnet-4-5-20250929",
+          max_tokens: 4096,
+          system: `You are an expert AI workflow architect specializing in enterprise process transformation. Generate detailed workflow visualizations comparing current manual processes with AI-powered alternatives.
+
+CRITICAL REQUIREMENTS:
+1. Current State: Generate 5-8 detailed steps showing the manual/legacy process with realistic durations
+2. Target State: Generate 5-8 steps showing the AI-enhanced process
+3. EVERY target workflow MUST have at least ONE Human-in-the-Loop checkpoint
+4. Current state MUST identify bottlenecks (mark at least 1-2 steps as isBottleneck: true) and pain points
+5. All durations must be realistic estimates grounded in the specific business function
+6. Comparison metrics must show meaningful, realistic improvements
+7. Return ONLY valid JSON — no markdown, no code blocks, no explanatory text`,
+          messages: [
+            {
+              role: "user",
+              content: `Generate a detailed workflow comparison for this AI use case:
+
+USE CASE: ${uc.name}
+DESCRIPTION: ${uc.description || "N/A"}
+BUSINESS FUNCTION: ${uc.function || "N/A"} / ${uc.subFunction || "N/A"}
+TARGET FRICTION: ${uc.targetFriction || "N/A"}
+FRICTION TYPE: ${matchedFP?.frictionType || "N/A"}
+FRICTION ANNUAL COST: ${matchedFP?.estimatedAnnualCost || "N/A"}
+FRICTION ANNUAL HOURS: ${matchedFP?.annualHours || "N/A"}
+STRATEGIC THEME: ${uc.strategicTheme || "N/A"}
+AI PRIMITIVES: ${(uc.aiPrimitives || []).join(", ")}
+AGENTIC PATTERN: ${uc.agenticPattern || "Not specified"}
+PATTERN RATIONALE: ${uc.patternRationale || "Not specified"}
+DESIRED OUTCOMES: ${(uc.desiredOutcomes || []).join("; ") || "N/A"}
+DATA TYPES: ${(uc.dataTypes || []).join(", ") || "N/A"}
+INTEGRATIONS: ${(uc.integrations || []).join(", ") || "N/A"}
+
+Return JSON with this EXACT structure:
 {
   "currentState": [
-    {"id": "cs-1", "stepNumber": 1, "name": "Step name", "description": "What happens", "actorType": "human|system", "actorName": "Role", "duration": "2 hours", "systems": ["System"], "isBottleneck": false, "isDecisionPoint": false, "painPoints": []}
+    {"id": "cs-1", "stepNumber": 1, "name": "Step name", "description": "Detailed description of what happens", "actorType": "human", "actorName": "Role title", "duration": "2 hours", "systems": ["System name"], "isBottleneck": true, "isDecisionPoint": false, "painPoints": ["Pain point description"]}
   ],
   "targetState": [
-    {"id": "ts-1", "stepNumber": 1, "name": "Step name", "description": "What happens", "actorType": "human|system|ai_agent", "actorName": "Role or AI Agent", "duration": "5 minutes", "systems": ["System"], "isBottleneck": false, "isDecisionPoint": false, "painPoints": [], "isAIEnabled": true, "isHumanInTheLoop": false, "aiCapabilities": ["capability"], "automationLevel": "full|assisted|supervised|manual"}
+    {"id": "ts-1", "stepNumber": 1, "name": "Step name", "description": "Detailed description of what happens", "actorType": "ai_agent", "actorName": "AI Agent name", "duration": "5 minutes", "systems": ["System name"], "isBottleneck": false, "isDecisionPoint": false, "painPoints": [], "isAIEnabled": true, "isHumanInTheLoop": false, "aiCapabilities": ["NLP", "Pattern Recognition"], "automationLevel": "full"}
   ],
   "comparisonMetrics": {
     "timeReduction": {"before": "45 days", "after": "7 days", "improvement": "84%"},
     "costReduction": {"before": "$9.8M/yr", "after": "$3.3M/yr", "improvement": "66%"},
-    "qualityImprovement": {"before": "72%", "after": "94%", "improvement": "+22%"},
+    "qualityImprovement": {"before": "72% accuracy", "after": "94% accuracy", "improvement": "+22%"},
     "throughputIncrease": {"before": "100/month", "after": "500/month", "improvement": "5x"}
   }
-}`,
-          },
-        ],
-      });
+}
 
-      const text =
-        response.content[0].type === "text" ? response.content[0].text : "";
-      // Extract JSON from response
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const workflow = JSON.parse(jsonMatch[0]);
-        res.json(workflow);
-      } else {
-        res.status(500).json({ message: "Failed to parse AI response" });
+IMPORTANT: Ground the metrics in the friction point data provided. The cost reduction "before" should align with the friction annual cost. The time reduction should reflect the friction annual hours. Make improvements realistic and achievable.`,
+            },
+          ],
+        });
+
+        const text =
+          response.content[0].type === "text" ? response.content[0].text : "";
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+
+        if (jsonMatch) {
+          try {
+            const workflow = JSON.parse(jsonMatch[0]);
+            workflowMaps.push({
+              useCaseId: uc.id,
+              useCaseName: uc.name,
+              agenticPattern: uc.agenticPattern || "",
+              patternRationale: uc.patternRationale || "",
+              currentState: workflow.currentState || [],
+              targetState: workflow.targetState || [],
+              comparisonMetrics: workflow.comparisonMetrics || {
+                timeReduction: { before: "--", after: "--", improvement: "--" },
+                costReduction: { before: "--", after: "--", improvement: "--" },
+                qualityImprovement: { before: "--", after: "--", improvement: "--" },
+                throughputIncrease: { before: "--", after: "--", improvement: "--" },
+              },
+              desiredOutcomes: uc.desiredOutcomes || [],
+              dataTypes: uc.dataTypes || [],
+              integrations: uc.integrations || [],
+            });
+          } catch (parseErr) {
+            console.error(`Failed to parse workflow for ${uc.id}:`, parseErr);
+            // Still add an empty workflow entry so the use case shows up
+            workflowMaps.push({
+              useCaseId: uc.id,
+              useCaseName: uc.name,
+              agenticPattern: uc.agenticPattern || "",
+              patternRationale: uc.patternRationale || "",
+              currentState: [],
+              targetState: [],
+              comparisonMetrics: {
+                timeReduction: { before: "--", after: "--", improvement: "--" },
+                costReduction: { before: "--", after: "--", improvement: "--" },
+                qualityImprovement: { before: "--", after: "--", improvement: "--" },
+                throughputIncrease: { before: "--", after: "--", improvement: "--" },
+              },
+              desiredOutcomes: uc.desiredOutcomes || [],
+              dataTypes: uc.dataTypes || [],
+              integrations: uc.integrations || [],
+            });
+          }
+        }
+
+        // Rate limit: 500ms between API calls to avoid rate limits
+        if (useCases.indexOf(uc) < useCases.length - 1) {
+          await new Promise((r) => setTimeout(r, 500));
+        }
       }
+
+      // Save workflow maps to the scenario
+      await storage.updateScenario(scenarioId, {
+        workflowMaps,
+      } as any);
+
+      res.json({ success: true, count: workflowMaps.length, workflowMaps });
     } catch (err: any) {
       console.error("Workflow generation error:", err.message);
       res.status(500).json({ message: "Workflow generation error" });

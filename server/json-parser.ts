@@ -69,6 +69,7 @@ export function parseImportedJSON(raw: ImportedAnalysis) {
       estimatedAnnualCost: f["Estimated Annual Cost ($)"] || "$0",
       primaryDriverImpact: f["Primary Driver Impact"] || "",
       strategicTheme: f["Strategic Theme"] || "",
+      frictionType: f["Friction Type"] || "",
     }),
   );
 
@@ -87,6 +88,23 @@ export function parseImportedJSON(raw: ImportedAnalysis) {
     hitlCheckpoint: u["Human-in-the-Loop Checkpoint"] || "",
     targetFriction: u["Target Friction"] || "",
     strategicTheme: u["Strategic Theme"] || "",
+    agenticPattern: u["Agentic Pattern"] || "",
+    patternRationale: u["Pattern Rationale"] || "",
+    desiredOutcomes: Array.isArray(u["Desired Outcomes"])
+      ? u["Desired Outcomes"]
+      : typeof u["Desired Outcomes"] === "string"
+        ? u["Desired Outcomes"].split(",").map((s: string) => s.trim()).filter(Boolean)
+        : [],
+    dataTypes: Array.isArray(u["Data Types"])
+      ? u["Data Types"]
+      : typeof u["Data Types"] === "string"
+        ? u["Data Types"].split(",").map((s: string) => s.trim()).filter(Boolean)
+        : [],
+    integrations: Array.isArray(u["Integrations"])
+      ? u["Integrations"]
+      : typeof u["Integrations"] === "string"
+        ? u["Integrations"].split(",").map((s: string) => s.trim()).filter(Boolean)
+        : [],
   }));
 
   // Step 5: Benefits Quantification

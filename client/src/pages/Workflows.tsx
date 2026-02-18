@@ -497,12 +497,14 @@ export default function Workflows() {
       });
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({
         queryKey: [`/api/projects/${id}/scenarios`],
       });
     },
   });
+
+  const useCaseCount = useCases.length;
 
   // --- Mark Complete & Navigate ---
   const markComplete = useMutation({
@@ -567,7 +569,7 @@ export default function Workflows() {
           </Button>
           <Button
             onClick={() => generateMutation.mutate()}
-            disabled={generateMutation.isPending}
+            disabled={generateMutation.isPending || useCaseCount === 0}
             className="gap-2 text-white"
             style={{
               background: "linear-gradient(135deg, #001278, #02a2fd)",
@@ -577,11 +579,26 @@ export default function Workflows() {
               className={`w-4 h-4 ${generateMutation.isPending ? "animate-pulse" : ""}`}
             />
             {generateMutation.isPending
-              ? "Generating..."
+              ? `Generating ${useCaseCount} workflows...`
               : "Generate Workflows"}
           </Button>
         </div>
       </div>
+
+      {/* Generation progress banner */}
+      {generateMutation.isPending && (
+        <div className="rounded-xl border border-[#02a2fd]/30 bg-[#02a2fd]/5 dark:bg-[#02a2fd]/10 px-6 py-4 mb-8 flex items-center gap-3">
+          <Loader2 className="w-5 h-5 animate-spin text-[#02a2fd]" />
+          <div>
+            <p className="text-sm font-medium text-foreground">
+              Generating AI-powered workflows for {useCaseCount} use case{useCaseCount !== 1 ? "s" : ""}...
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              This may take a minute. Each use case gets a detailed current-state vs AI-powered process comparison.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Use Case Selector Tabs */}
       {workflowMaps.length > 0 && (
@@ -626,7 +643,7 @@ export default function Workflows() {
             </p>
             <Button
               onClick={() => generateMutation.mutate()}
-              disabled={generateMutation.isPending}
+              disabled={generateMutation.isPending || useCaseCount === 0}
               className="mt-2 gap-2 text-white"
               style={{
                 background: "linear-gradient(135deg, #001278, #02a2fd)",
@@ -636,7 +653,7 @@ export default function Workflows() {
                 className={`w-4 h-4 ${generateMutation.isPending ? "animate-pulse" : ""}`}
               />
               {generateMutation.isPending
-                ? "Generating..."
+                ? `Generating ${useCaseCount} workflows...`
                 : "Generate Workflows"}
             </Button>
           </div>
