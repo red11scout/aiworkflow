@@ -10,6 +10,29 @@ import type {
 } from "@shared/types";
 
 /**
+ * Maps CognoResearcher "Primary Pattern" display names to aiworkflow pattern IDs.
+ * Falls back to empty string if no match found.
+ */
+function mapPrimaryPatternToId(patternName: string | undefined): string {
+  if (!patternName) return "";
+  const map: Record<string, string> = {
+    "Reflection": "reflection",
+    "Tool Use": "tool_use",
+    "Planning": "planning",
+    "ReAct Loop": "react",
+    "Prompt Chaining": "planning",
+    "Semantic Router": "planning",
+    "Constitutional Guardrail": "reflection",
+    "Orchestrator-Workers": "orchestrator_worker",
+    "Agent Handoff": "agent_handoff",
+    "Parallelization": "parallelization",
+    "Generator-Critic": "generator_critic",
+    "Group Chat": "group_chat",
+  };
+  return map[patternName] || "";
+}
+
+/**
  * Parses the uploaded JSON assessment file and maps each step
  * to strongly-typed arrays for storage in scenario JSONB columns.
  */
@@ -88,7 +111,7 @@ export function parseImportedJSON(raw: ImportedAnalysis) {
     hitlCheckpoint: u["Human-in-the-Loop Checkpoint"] || "",
     targetFriction: u["Target Friction"] || "",
     strategicTheme: u["Strategic Theme"] || "",
-    agenticPattern: u["Agentic Pattern"] || "",
+    agenticPattern: u["Agentic Pattern"] || mapPrimaryPatternToId(u["Primary Pattern"]) || "",
     patternRationale: u["Pattern Rationale"] || "",
     desiredOutcomes: Array.isArray(u["Desired Outcomes"])
       ? u["Desired Outcomes"]
