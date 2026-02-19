@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from "react";
 import { useLocation, useParams } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, getOwnerToken } from "@/lib/queryClient";
+import { FRICTION_RECOVERY_RATE } from "@shared/assumptions";
 import Layout from "@/components/Layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -111,7 +112,7 @@ export default function Dashboard() {
       (sum: number, f: any) => sum + (f.annualCost || f.estimatedCost || 0),
       0,
     );
-    const recoverableAmount = dashboard?.recoverableAmount || totalFrictionCost * 0.6;
+    const recoverableAmount = dashboard?.recoverableAmount || totalFrictionCost * FRICTION_RECOVERY_RATE;
     return { totalFrictionCost, recoverableAmount };
   }, [frictionItems, dashboard]);
 

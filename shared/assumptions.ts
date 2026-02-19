@@ -151,6 +151,14 @@ export const INPUT_BOUNDS: InputBound[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// 7b. DERIVED CONSTANTS
+// ---------------------------------------------------------------------------
+
+// Typical AI automation recovery rate: fraction of friction cost recoverable
+// through AI-driven process improvements (conservative industry estimate)
+export const FRICTION_RECOVERY_RATE = 0.60;
+
+// ---------------------------------------------------------------------------
 // 8. DEFAULT ASSUMPTIONS (29 fields)
 // ---------------------------------------------------------------------------
 

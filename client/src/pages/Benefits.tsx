@@ -25,6 +25,7 @@ import {
   AlertCircle,
   BarChart3,
 } from "lucide-react";
+import { SCENARIO_MULTIPLIERS, parseCurrencyString } from "@shared/formulas";
 
 // --- Types ---
 
@@ -62,10 +63,6 @@ type ScenarioType = "base" | "conservative" | "optimistic" | "custom";
 
 // --- Helpers ---
 
-function parseCurrency(value: string): number {
-  return parseFloat(value?.replace(/[^0-9.-]/g, "") || "0") || 0;
-}
-
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -75,21 +72,9 @@ function formatCurrency(value: number): string {
 }
 
 function getScenarioMultiplier(scenario: ScenarioType): number {
-  switch (scenario) {
-    case "conservative":
-      return 0.7;
-    case "optimistic":
-      return 1.4;
-    case "custom":
-      return 1.0;
-    case "base":
-    default:
-      return 1.0;
-  }
-}
-
-function computeTotalFromComponents(components: FormulaComponent[]): number {
-  return components.reduce((sum, c) => sum + (c.value || 0), 0);
+  if (scenario === "custom") return 1.0;
+  const config = SCENARIO_MULTIPLIERS[scenario] || SCENARIO_MULTIPLIERS.base;
+  return config.benefitMultiplier;
 }
 
 // --- Scenario Tabs ---
@@ -124,7 +109,7 @@ function BenefitCard({
   onComponentChange: (index: number, value: number) => void;
   editable: boolean;
 }) {
-  const baseTotal = computeTotalFromComponents(components);
+  const baseTotal = parseCurrencyString(totalValue);
   const adjustedTotal = baseTotal * scenarioMultiplier;
 
   return (
@@ -233,7 +218,7 @@ function ScenarioComparisonChart({
 
   const allValues = benefits.flatMap((b) =>
     scenarios.map(
-      (s) => parseCurrency(b.totalAnnualValue) * getScenarioMultiplier(s),
+      (s) => parseCurrencyString(b.totalAnnualValue) * getScenarioMultiplier(s),
     ),
   );
   const maxValue = Math.max(...allValues, 1);
@@ -258,7 +243,7 @@ function ScenarioComparisonChart({
                 <div className="space-y-1.5">
                   {scenarios.map((s) => {
                     const val =
-                      parseCurrency(b.totalAnnualValue) *
+                      parseCurrencyString(b.totalAnnualValue) *
                       getScenarioMultiplier(s);
                     const widthPct = Math.max((val / maxValue) * 100, 2);
                     return (
@@ -386,19 +371,14 @@ export default function Benefits() {
       };
       (b as any)[labelsKey] = labels;
 
-      // Recalculate totals
-      const costTotal = computeTotalFromComponents(
-        b.costFormulaLabels.components,
-      );
-      const revTotal = computeTotalFromComponents(
-        b.revenueFormulaLabels.components,
-      );
-      const riskTotal = computeTotalFromComponents(
-        b.riskFormulaLabels.components,
-      );
-      const cfTotal = computeTotalFromComponents(
-        b.cashFlowFormulaLabels.components,
-      );
+      // Recalculate totals using product of components (benefit formulas are multiplicative)
+      const productOfComponents = (comps: FormulaComponent[]) =>
+        comps.length > 0 ? comps.reduce((prod, c) => prod * (c.value || 0), 1) : 0;
+
+      const costTotal = productOfComponents(b.costFormulaLabels.components);
+      const revTotal = productOfComponents(b.revenueFormulaLabels.components);
+      const riskTotal = productOfComponents(b.riskFormulaLabels.components);
+      const cfTotal = productOfComponents(b.cashFlowFormulaLabels.components);
 
       b.costBenefit = formatCurrency(costTotal);
       b.revenueBenefit = formatCurrency(revTotal);
@@ -422,7 +402,7 @@ export default function Benefits() {
       const updated = [...benefits];
       const b = { ...updated[benefitIndex] };
       b.probabilityOfSuccess = probability;
-      const totalAnnual = parseCurrency(b.totalAnnualValue);
+      const totalAnnual = parseCurrencyString(b.totalAnnualValue);
       b.expectedValue = formatCurrency(totalAnnual * (probability / 100));
       updated[benefitIndex] = b;
       saveMutation.mutate(updated);
@@ -434,13 +414,13 @@ export default function Benefits() {
   const overallSummary = useMemo(() => {
     const totalAnnual = benefits.reduce(
       (sum, b) =>
-        sum + parseCurrency(b.totalAnnualValue) * scenarioMultiplier,
+        sum + parseCurrencyString(b.totalAnnualValue) * scenarioMultiplier,
       0,
     );
     const totalExpected = benefits.reduce(
       (sum, b) =>
         sum +
-        parseCurrency(b.totalAnnualValue) *
+        parseCurrencyString(b.totalAnnualValue) *
           scenarioMultiplier *
           (b.probabilityOfSuccess / 100),
       0,
@@ -591,7 +571,7 @@ export default function Benefits() {
           {benefits.map((benefit, bIndex) => {
             const uc = useCases.find((u) => u.id === benefit.useCaseId);
             const totalAnnual =
-              parseCurrency(benefit.totalAnnualValue) * scenarioMultiplier;
+              parseCurrencyString(benefit.totalAnnualValue) * scenarioMultiplier;
             const expectedVal =
               totalAnnual * (benefit.probabilityOfSuccess / 100);
 

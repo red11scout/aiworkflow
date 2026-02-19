@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Gauge, Save, ArrowLeft, ArrowRight, Calculator, Cpu, DollarSign, Clock } from "lucide-react";
 import { toast } from "sonner";
+import { READINESS_WEIGHTS } from "@shared/formulas";
 
 interface ReadinessModel {
   id: string;
@@ -32,7 +33,12 @@ const INPUT_COST_PER_MILLION = 3;
 const OUTPUT_COST_PER_MILLION = 15;
 
 function calcReadinessScore(m: ReadinessModel): number {
-  return +(m.dataAvailability * 0.3 + m.technicalInfrastructure * 0.25 + m.organizationalCapacity * 0.25 + m.governance * 0.2).toFixed(2);
+  return +(
+    m.organizationalCapacity * READINESS_WEIGHTS.organizational +
+    m.dataAvailability * READINESS_WEIGHTS.data +
+    m.technicalInfrastructure * READINESS_WEIGHTS.technical +
+    m.governance * READINESS_WEIGHTS.governance
+  ).toFixed(2);
 }
 
 function calcMonthlyTokens(m: ReadinessModel): number {
@@ -342,7 +348,7 @@ export default function Readiness() {
                       />
                       <div className="flex justify-between text-xs text-muted-foreground mt-0.5">
                         <span>1</span>
-                        <span className="text-muted-foreground/60">Weight: 30%</span>
+                        <span className="text-muted-foreground/60">Weight: {READINESS_WEIGHTS.data * 100}%</span>
                         <span>10</span>
                       </div>
                     </div>
@@ -367,7 +373,7 @@ export default function Readiness() {
                       />
                       <div className="flex justify-between text-xs text-muted-foreground mt-0.5">
                         <span>1</span>
-                        <span className="text-muted-foreground/60">Weight: 25%</span>
+                        <span className="text-muted-foreground/60">Weight: {READINESS_WEIGHTS.technical * 100}%</span>
                         <span>10</span>
                       </div>
                     </div>
@@ -392,7 +398,7 @@ export default function Readiness() {
                       />
                       <div className="flex justify-between text-xs text-muted-foreground mt-0.5">
                         <span>1</span>
-                        <span className="text-muted-foreground/60">Weight: 25%</span>
+                        <span className="text-muted-foreground/60">Weight: {READINESS_WEIGHTS.organizational * 100}%</span>
                         <span>10</span>
                       </div>
                     </div>
@@ -417,7 +423,7 @@ export default function Readiness() {
                       />
                       <div className="flex justify-between text-xs text-muted-foreground mt-0.5">
                         <span>1</span>
-                        <span className="text-muted-foreground/60">Weight: 20%</span>
+                        <span className="text-muted-foreground/60">Weight: {READINESS_WEIGHTS.governance * 100}%</span>
                         <span>10</span>
                       </div>
                     </div>

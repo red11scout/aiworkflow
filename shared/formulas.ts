@@ -73,7 +73,7 @@ export function calculateExpectedValue(
 // -------------------------------------------------------------------------
 
 // Weights aligned with assumptions Excel: Org 30%, Data 30%, Tech 20%, Gov 20%
-const READINESS_WEIGHTS = {
+export const READINESS_WEIGHTS = {
   organizational: 0.30,
   data: 0.30,
   technical: 0.20,
@@ -276,4 +276,201 @@ export function parseCurrencyString(value: string): number {
   if (clean.endsWith("K")) return parseFloat(clean) * 1_000;
   if (clean.endsWith("B")) return parseFloat(clean) * 1_000_000_000;
   return parseFloat(clean) || 0;
+}
+
+// -------------------------------------------------------------------------
+// AUDIT TRACE TYPES & TRACED CALCULATIONS
+// Server-side wrappers that return both value AND a full audit trail.
+// -------------------------------------------------------------------------
+
+export interface FormulaTrace {
+  formula: string;
+  inputs: Record<string, number>;
+  intermediates?: Record<string, number>;
+  output: number;
+}
+
+export interface CalculationResult {
+  value: number;
+  trace: FormulaTrace;
+}
+
+export function calculateCostBenefitWithTrace(
+  hoursSaved: number,
+  loadedRate: number,
+  benefitsLoading: number,
+  adoptionRate: number,
+  dataMaturity: number,
+): CalculationResult {
+  const value = calculateCostBenefit(hoursSaved, loadedRate, benefitsLoading, adoptionRate, dataMaturity);
+  return {
+    value,
+    trace: {
+      formula: "HoursSaved × LoadedRate × BenefitsLoading × AdoptionRate × DataMaturity",
+      inputs: { hoursSaved, loadedRate, benefitsLoading, adoptionRate, dataMaturity },
+      output: value,
+    },
+  };
+}
+
+export function calculateRevenueBenefitWithTrace(
+  revenueUpliftPct: number,
+  revenueAtRisk: number,
+  realizationFactor: number,
+  dataMaturity: number,
+): CalculationResult {
+  const value = calculateRevenueBenefit(revenueUpliftPct, revenueAtRisk, realizationFactor, dataMaturity);
+  return {
+    value,
+    trace: {
+      formula: "UpliftPct × RevenueAtRisk × RealizationFactor × DataMaturity",
+      inputs: { revenueUpliftPct, revenueAtRisk, realizationFactor, dataMaturity },
+      output: value,
+    },
+  };
+}
+
+export function calculateRiskBenefitWithTrace(
+  riskReductionPct: number,
+  riskExposure: number,
+  realizationFactor: number,
+  dataMaturity: number,
+): CalculationResult {
+  const value = calculateRiskBenefit(riskReductionPct, riskExposure, realizationFactor, dataMaturity);
+  return {
+    value,
+    trace: {
+      formula: "RiskReductionPct × RiskExposure × RealizationFactor × DataMaturity",
+      inputs: { riskReductionPct, riskExposure, realizationFactor, dataMaturity },
+      output: value,
+    },
+  };
+}
+
+export function calculateCashFlowBenefitWithTrace(
+  annualRevenue: number,
+  daysImproved: number,
+  costOfCapital: number,
+  realizationFactor: number,
+  dataMaturity: number,
+): CalculationResult {
+  const workingCapitalFreed = annualRevenue * (daysImproved / 365);
+  const value = calculateCashFlowBenefit(annualRevenue, daysImproved, costOfCapital, realizationFactor, dataMaturity);
+  return {
+    value,
+    trace: {
+      formula: "AnnualRevenue × (DaysImproved / 365) × CostOfCapital × RealizationFactor × DataMaturity",
+      inputs: { annualRevenue, daysImproved, costOfCapital, realizationFactor, dataMaturity },
+      intermediates: { workingCapitalFreed },
+      output: value,
+    },
+  };
+}
+
+export function calculateReadinessScoreWithTrace(
+  data: number,
+  technical: number,
+  organizational: number,
+  governance: number,
+): CalculationResult {
+  const value = calculateReadinessScore(data, technical, organizational, governance);
+  return {
+    value,
+    trace: {
+      formula: "Org×0.30 + Data×0.30 + Tech×0.20 + Gov×0.20",
+      inputs: { organizational, data, technical, governance },
+      intermediates: {
+        orgWeighted: organizational * READINESS_WEIGHTS.organizational,
+        dataWeighted: data * READINESS_WEIGHTS.data,
+        techWeighted: technical * READINESS_WEIGHTS.technical,
+        govWeighted: governance * READINESS_WEIGHTS.governance,
+      },
+      output: value,
+    },
+  };
+}
+
+// -------------------------------------------------------------------------
+// CROSS-VALIDATION GUARDRAILS
+// Ported from researchapp — prevents inflated or double-counted benefits
+// -------------------------------------------------------------------------
+
+export const GUARDRAIL_LIMITS = {
+  benefitsCapPct: 0.50,         // Total benefits cap: 50% of annual revenue
+  perUseCaseCapPct: 0.15,       // Per use-case cap: 15% of annual revenue
+  revenueWarningPct: 0.30,      // Warn if revenue benefits > 30% of revenue
+  fteWarningPct: 0.20,          // Warn if FTE savings > 20% of headcount
+  annualHoursPerFTE: 2080,      // Standard annual working hours per FTE
+};
+
+export interface CrossValidationResult {
+  warnings: string[];
+  metrics: {
+    totalBenefitsVsRevenue: number;
+    revenueRatio: number;
+    fteRatio: number;
+    benefitsCapped: boolean;
+    scaleFactor: number;
+  };
+}
+
+export function crossValidateUseCases(
+  useCaseBenefits: Array<{
+    costBenefit: number;
+    revenueBenefit: number;
+    riskBenefit: number;
+    cashFlowBenefit: number;
+    hoursSaved?: number;
+  }>,
+  annualRevenue: number,
+  totalEmployees: number,
+): CrossValidationResult {
+  const warnings: string[] = [];
+  let totalCost = 0, totalRevenue = 0, totalRisk = 0, totalCashFlow = 0, totalHours = 0;
+
+  for (const uc of useCaseBenefits) {
+    totalCost += uc.costBenefit;
+    totalRevenue += uc.revenueBenefit;
+    totalRisk += uc.riskBenefit;
+    totalCashFlow += uc.cashFlowBenefit;
+    totalHours += uc.hoursSaved || 0;
+  }
+
+  const totalBenefits = totalCost + totalRevenue + totalRisk + totalCashFlow;
+  const benefitsRatio = annualRevenue > 0 ? totalBenefits / annualRevenue : 0;
+  const revenueRatio = annualRevenue > 0 ? totalRevenue / annualRevenue : 0;
+  const fteEquivalent = totalHours / GUARDRAIL_LIMITS.annualHoursPerFTE;
+  const fteRatio = totalEmployees > 0 ? fteEquivalent / totalEmployees : 0;
+
+  if (annualRevenue > 0 && benefitsRatio > GUARDRAIL_LIMITS.benefitsCapPct) {
+    warnings.push(
+      `Total benefits (${formatCurrency(totalBenefits)}) exceed ${GUARDRAIL_LIMITS.benefitsCapPct * 100}% of annual revenue. Benefits may be proportionally scaled.`,
+    );
+  }
+
+  if (annualRevenue > 0 && revenueRatio > GUARDRAIL_LIMITS.revenueWarningPct) {
+    warnings.push(
+      `Revenue benefits (${formatCurrency(totalRevenue)}) exceed 30% of annual revenue. Possible double-counting across use cases.`,
+    );
+  }
+
+  if (totalEmployees > 0 && fteRatio > GUARDRAIL_LIMITS.fteWarningPct) {
+    warnings.push(
+      `Hours saved (${totalHours.toLocaleString()}) implies ${fteEquivalent.toFixed(0)} FTEs — more than 20% of ${totalEmployees} employees. Verify for double-counting.`,
+    );
+  }
+
+  const cap = annualRevenue > 0 ? annualRevenue * GUARDRAIL_LIMITS.benefitsCapPct : Infinity;
+  const scaleFactor = totalBenefits > cap ? cap / totalBenefits : 1.0;
+
+  return {
+    warnings,
+    metrics: {
+      totalBenefitsVsRevenue: benefitsRatio,
+      revenueRatio,
+      fteRatio,
+      benefitsCapped: scaleFactor < 1.0,
+      scaleFactor,
+    },
+  };
 }

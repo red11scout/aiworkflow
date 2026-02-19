@@ -3,6 +3,11 @@ import {
   calculateRevenueBenefit,
   calculateRiskBenefit,
   calculateCashFlowBenefit,
+  calculateCostBenefitWithTrace,
+  calculateRevenueBenefitWithTrace,
+  calculateRiskBenefitWithTrace,
+  calculateCashFlowBenefitWithTrace,
+  calculateReadinessScoreWithTrace,
   calculateTotalAnnualValue,
   calculateExpectedValue,
   calculateReadinessScore,
@@ -18,9 +23,12 @@ import {
   calculateIRR,
   calculatePaybackMonths,
   formatCurrency,
+  parseCurrencyString,
   SCENARIO_MULTIPLIERS,
   type ScenarioMultipliers,
+  type FormulaTrace,
 } from "@shared/formulas";
+import { clampInput } from "@shared/assumptions";
 import type {
   BenefitQuantification,
   ReadinessModel,
@@ -44,24 +52,30 @@ export function recalculateBenefits(
     const riskComponents = b.riskFormulaLabels.components;
     const cfComponents = b.cashFlowFormulaLabels.components;
 
-    // Calculate each benefit from components
+    // Calculate each benefit from components (with input validation + traces)
+    const traces: Record<string, FormulaTrace> = {};
+
     let cost = 0;
     if (costComponents.length >= 2) {
-      const hoursSaved = costComponents.find((c) => c.label === "Hours Saved")?.value || 0;
-      const rate = costComponents.find((c) => c.label === "Loaded Hourly Rate")?.value || 0;
+      const hoursSaved = clampInput("hoursSaved", costComponents.find((c) => c.label === "Hours Saved")?.value || 0);
+      const rate = clampInput("loadedHourlyRate", costComponents.find((c) => c.label === "Loaded Hourly Rate")?.value || 0);
       const loading = costComponents.find((c) => c.label === "Benefits Loading")?.value || 1.35;
       const adoption = costComponents.find((c) => c.label === "Adoption Rate")?.value || 0.9;
       const maturity = costComponents.find((c) => c.label === "Data Maturity")?.value || 0.75;
-      cost = calculateCostBenefit(hoursSaved, rate, loading, adoption, maturity);
+      const result = calculateCostBenefitWithTrace(hoursSaved, rate, loading, adoption, maturity);
+      cost = result.value;
+      traces.cost = result.trace;
     }
 
     let revenue = 0;
     if (revComponents.length >= 2) {
-      const uplift = revComponents.find((c) => c.label === "Revenue Uplift %")?.value || 0;
-      const atRisk = revComponents.find((c) => c.label === "Revenue at Risk")?.value || 0;
+      const uplift = clampInput("upliftPct", revComponents.find((c) => c.label === "Revenue Uplift %")?.value || 0);
+      const atRisk = clampInput("baselineRevenueAtRisk", revComponents.find((c) => c.label === "Revenue at Risk")?.value || 0);
       const realization = revComponents.find((c) => c.label === "Realization Factor")?.value || 0.95;
       const maturity = revComponents.find((c) => c.label === "Data Maturity")?.value || 0.75;
-      revenue = calculateRevenueBenefit(uplift, atRisk, realization, maturity);
+      const result = calculateRevenueBenefitWithTrace(uplift, atRisk, realization, maturity);
+      revenue = result.value;
+      traces.revenue = result.trace;
     }
 
     let risk = 0;
@@ -70,17 +84,21 @@ export function recalculateBenefits(
       const exposure = riskComponents.find((c) => c.label === "Risk Exposure")?.value || 0;
       const realization = riskComponents.find((c) => c.label === "Realization Factor")?.value || 0.8;
       const maturity = riskComponents.find((c) => c.label === "Data Maturity")?.value || 0.75;
-      risk = calculateRiskBenefit(reduction, exposure, realization, maturity);
+      const result = calculateRiskBenefitWithTrace(reduction, exposure, realization, maturity);
+      risk = result.value;
+      traces.risk = result.trace;
     }
 
     let cashFlow = 0;
     if (cfComponents.length >= 2) {
-      const annualRev = cfComponents.find((c) => c.label === "Annual Revenue")?.value || 0;
-      const days = cfComponents.find((c) => c.label === "Days Improved")?.value || 0;
-      const capital = cfComponents.find((c) => c.label === "Cost of Capital")?.value || 0.08;
+      const annualRev = clampInput("annualRevenue", cfComponents.find((c) => c.label === "Annual Revenue")?.value || 0);
+      const days = clampInput("daysImprovement", cfComponents.find((c) => c.label === "Days Improved")?.value || 0);
+      const capital = clampInput("costOfCapital", cfComponents.find((c) => c.label === "Cost of Capital")?.value || 0.08);
       const realization = cfComponents.find((c) => c.label === "Realization Factor")?.value || 0.85;
       const maturity = cfComponents.find((c) => c.label === "Data Maturity")?.value || 0.75;
-      cashFlow = calculateCashFlowBenefit(annualRev, days, capital, realization, maturity);
+      const result = calculateCashFlowBenefitWithTrace(annualRev, days, capital, realization, maturity);
+      cashFlow = result.value;
+      traces.cashFlow = result.trace;
     }
 
     // Apply scenario multiplier
@@ -102,6 +120,7 @@ export function recalculateBenefits(
       totalAnnualValue: formatCurrency(total),
       expectedValue: formatCurrency(expected),
       probabilityOfSuccess: prob,
+      _traces: traces,
     };
   });
 }
@@ -149,12 +168,7 @@ export function recalculatePriorities(
   readiness: ReadinessModel[],
 ): PriorityScore[] {
   // Parse expected values for normalization
-  const expectedValues = benefits.map((b) => {
-    const clean = b.expectedValue.replace(/[,$]/g, "");
-    if (clean.endsWith("M")) return parseFloat(clean) * 1_000_000;
-    if (clean.endsWith("K")) return parseFloat(clean) * 1_000;
-    return parseFloat(clean) || 0;
-  });
+  const expectedValues = benefits.map((b) => parseCurrencyString(b.expectedValue));
 
   return benefits.map((b, idx) => {
     const r = readiness.find((r) => r.useCaseId === b.useCaseId);
@@ -189,40 +203,39 @@ export function recalculatePriorities(
 // GENERATE SCENARIO ANALYSIS
 // =========================================================================
 
+// Initial investment estimated as 20% of base annual benefit (same as generateMultiYearProjection)
+const INVESTMENT_PCT_OF_ANNUAL = 0.20;
+
 export function generateScenarioAnalysis(
   benefits: BenefitQuantification[],
 ): ScenarioAnalysis {
   const calcTotal = (multiplier: ScenarioMultipliers): number => {
     const recalc = recalculateBenefits(benefits, multiplier);
-    return recalc.reduce((sum, b) => {
-      const clean = b.expectedValue.replace(/[,$]/g, "");
-      let val = 0;
-      if (clean.endsWith("M")) val = parseFloat(clean) * 1_000_000;
-      else if (clean.endsWith("K")) val = parseFloat(clean) * 1_000;
-      else val = parseFloat(clean) || 0;
-      return sum + val;
-    }, 0);
+    return recalc.reduce((sum, b) => sum + parseCurrencyString(b.expectedValue), 0);
   };
 
   const conservative = calcTotal(SCENARIO_MULTIPLIERS.conservative);
   const moderate = calcTotal(SCENARIO_MULTIPLIERS.base);
   const aggressive = calcTotal(SCENARIO_MULTIPLIERS.optimistic);
 
+  // Use moderate (base) scenario for investment estimation
+  const initialInvestment = moderate * INVESTMENT_PCT_OF_ANNUAL;
+
   return {
     conservative: {
-      npv: formatCurrency(calculateNPV(conservative)),
+      npv: formatCurrency(calculateNPV(conservative, 3, 0.1, initialInvestment)),
       annualBenefit: formatCurrency(conservative),
-      paybackMonths: 0,
+      paybackMonths: calculatePaybackMonths(conservative, initialInvestment),
     },
     moderate: {
-      npv: formatCurrency(calculateNPV(moderate)),
+      npv: formatCurrency(calculateNPV(moderate, 3, 0.1, initialInvestment)),
       annualBenefit: formatCurrency(moderate),
-      paybackMonths: 0,
+      paybackMonths: calculatePaybackMonths(moderate, initialInvestment),
     },
     aggressive: {
-      npv: formatCurrency(calculateNPV(aggressive)),
+      npv: formatCurrency(calculateNPV(aggressive, 3, 0.1, initialInvestment)),
       annualBenefit: formatCurrency(aggressive),
-      paybackMonths: 0,
+      paybackMonths: calculatePaybackMonths(aggressive, initialInvestment),
     },
   };
 }
@@ -234,18 +247,14 @@ export function generateScenarioAnalysis(
 export function generateMultiYearProjection(
   benefits: BenefitQuantification[],
 ): MultiYearProjection {
-  const totalAnnual = benefits.reduce((sum, b) => {
-    const clean = b.expectedValue.replace(/[,$]/g, "");
-    let val = 0;
-    if (clean.endsWith("M")) val = parseFloat(clean) * 1_000_000;
-    else if (clean.endsWith("K")) val = parseFloat(clean) * 1_000;
-    else val = parseFloat(clean) || 0;
-    return sum + val;
-  }, 0);
+  const totalAnnual = benefits.reduce(
+    (sum, b) => sum + parseCurrencyString(b.expectedValue), 0,
+  );
 
-  const npv = calculateNPV(totalAnnual, 3, 0.1);
-  const irr = calculateIRR(totalAnnual, 3, totalAnnual * 0.2);
-  const payback = calculatePaybackMonths(totalAnnual, totalAnnual * 0.2);
+  const initialInvestment = totalAnnual * INVESTMENT_PCT_OF_ANNUAL;
+  const npv = calculateNPV(totalAnnual, 3, 0.1, initialInvestment);
+  const irr = calculateIRR(totalAnnual, 3, initialInvestment);
+  const payback = calculatePaybackMonths(totalAnnual, initialInvestment);
   const totalBenefit = totalAnnual * 3;
 
   return {
@@ -265,13 +274,6 @@ export function generateExecutiveDashboard(
   readiness: ReadinessModel[],
   priorities: PriorityScore[],
 ): ExecutiveDashboard {
-  const parseValue = (s: string): number => {
-    const clean = s.replace(/[,$]/g, "");
-    if (clean.endsWith("M")) return parseFloat(clean) * 1_000_000;
-    if (clean.endsWith("K")) return parseFloat(clean) * 1_000;
-    return parseFloat(clean) || 0;
-  };
-
   const topUseCases = priorities
     .sort((a, b) => b.priorityScore - a.priorityScore)
     .map((p, i) => {
@@ -280,7 +282,7 @@ export function generateExecutiveDashboard(
       return {
         rank: i + 1,
         useCase: p.useCaseName,
-        annualValue: b ? parseValue(b.totalAnnualValue) : 0,
+        annualValue: b ? parseCurrencyString(b.totalAnnualValue) : 0,
         monthlyTokens: r?.monthlyTokens || 0,
         priorityScore: p.priorityScore,
       };
@@ -291,19 +293,19 @@ export function generateExecutiveDashboard(
     0,
   );
   const totalCost = benefits.reduce(
-    (s, b) => s + parseValue(b.costBenefit),
+    (s, b) => s + parseCurrencyString(b.costBenefit),
     0,
   );
   const totalRevenue = benefits.reduce(
-    (s, b) => s + parseValue(b.revenueBenefit),
+    (s, b) => s + parseCurrencyString(b.revenueBenefit),
     0,
   );
   const totalRisk = benefits.reduce(
-    (s, b) => s + parseValue(b.riskBenefit),
+    (s, b) => s + parseCurrencyString(b.riskBenefit),
     0,
   );
   const totalCashFlow = benefits.reduce(
-    (s, b) => s + parseValue(b.cashFlowBenefit),
+    (s, b) => s + parseCurrencyString(b.cashFlowBenefit),
     0,
   );
   const totalMonthlyTokens = readiness.reduce(
