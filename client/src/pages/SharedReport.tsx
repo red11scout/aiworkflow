@@ -35,8 +35,8 @@ const QUADRANT_COLORS: Record<string, string> = {
 };
 
 function getQuadrant(valueScore: number, readinessScore: number): string {
-  const highValue = valueScore >= 6;
-  const highReadiness = readinessScore >= 6;
+  const highValue = valueScore >= 5.5;
+  const highReadiness = readinessScore >= 5.5;
   if (highValue && highReadiness) return "Champions";
   if (highValue && !highReadiness) return "Strategic";
   if (!highValue && highReadiness) return "Quick Wins";
@@ -61,12 +61,14 @@ export default function SharedReport() {
   const report = data as any;
 
   const useCases = (report?.useCases as any[]) || [];
+  const benefits = (report?.benefits as any[]) || [];
   const priorities = (report?.priorities as any[]) || [];
   const readiness = (report?.readiness as any[]) || [];
   const dashboard = report?.dashboard as any;
   const projection = dashboard?.projection as any;
   const scenarios = (report?.scenarios as any[]) || [];
   const frictionItems = (report?.frictionMapping as any[]) || [];
+  const scenarioAnalysis = report?.scenarioAnalysis as any;
 
   const getUseCaseName = (useCaseId: string) => {
     const uc = useCases.find((u: any) => u.id === useCaseId);
@@ -101,6 +103,26 @@ export default function SharedReport() {
     const recoverableAmount = dashboard?.recoverableAmount || totalFrictionCost * 0.6;
     return { totalFrictionCost, recoverableAmount };
   }, [frictionItems, dashboard]);
+
+  // Friction recovery detail rows
+  const frictionRecoveryRows = useMemo(() => {
+    return frictionItems.map((fp: any) => {
+      const fpCost = fp.annualCost || fp.estimatedCost || 0;
+      const matchedUc = useCases.find((uc: any) => uc.targetFriction === fp.frictionPoint);
+      const matchedBenefit = matchedUc
+        ? benefits.find((b: any) => b.useCaseId === matchedUc.id)
+        : null;
+      const ev = matchedBenefit?.expectedValueNum || 0;
+      const recoveryPct = fpCost > 0 ? (ev / fpCost) * 100 : 0;
+      return {
+        frictionPoint: fp.frictionPoint || fp.name || "",
+        annualCost: fpCost,
+        mappedUseCase: matchedUc?.name || "Unmapped",
+        recoveryAmount: ev,
+        recoveryPct,
+      };
+    });
+  }, [frictionItems, useCases, benefits]);
 
   // Top use cases sorted by priority
   const topUseCases = useMemo(() => {
@@ -322,15 +344,15 @@ export default function SharedReport() {
                   Value Score
                 </div>
                 <svg viewBox="-8 -4 116 112" className="w-full" style={{ maxHeight: 450 }}>
-                  {/* Quadrant backgrounds */}
-                  <rect x="0" y="40" width="60" height="60" fill="#94a3b8" opacity="0.08" />
-                  <rect x="60" y="40" width="40" height="60" fill="#02a2fd" opacity="0.08" />
-                  <rect x="0" y="0" width="60" height="40" fill="#f59e0b" opacity="0.08" />
-                  <rect x="60" y="0" width="40" height="40" fill="#36bf78" opacity="0.08" />
+                  {/* Quadrant backgrounds (threshold at 5.5) */}
+                  <rect x="0" y="45" width="55" height="55" fill="#94a3b8" opacity="0.08" />
+                  <rect x="55" y="45" width="45" height="55" fill="#02a2fd" opacity="0.08" />
+                  <rect x="0" y="0" width="55" height="45" fill="#f59e0b" opacity="0.08" />
+                  <rect x="55" y="0" width="45" height="45" fill="#36bf78" opacity="0.08" />
 
-                  {/* Threshold lines */}
-                  <line x1="60" y1="0" x2="60" y2="100" stroke="#e5e7eb" strokeWidth="0.5" strokeDasharray="2,2" />
-                  <line x1="0" y1="40" x2="100" y2="40" stroke="#e5e7eb" strokeWidth="0.5" strokeDasharray="2,2" />
+                  {/* Threshold lines at 5.5 */}
+                  <line x1="55" y1="0" x2="55" y2="100" stroke="#e5e7eb" strokeWidth="0.5" strokeDasharray="2,2" />
+                  <line x1="0" y1="45" x2="100" y2="45" stroke="#e5e7eb" strokeWidth="0.5" strokeDasharray="2,2" />
 
                   {/* Axes */}
                   <line x1="0" y1="100" x2="100" y2="100" stroke="currentColor" strokeWidth="0.3" opacity="0.3" />
@@ -474,11 +496,11 @@ export default function SharedReport() {
             <CardHeader className="pb-3">
               <CardTitle className="text-lg flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5" style={{ color: "#f59e0b" }} />
-                Friction Recovery
+                Friction Recovery Analysis
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <CardContent className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="text-center p-4 bg-muted/50 rounded-lg">
                   <p className="text-sm text-muted-foreground mb-1">Total Friction Cost</p>
                   <p className="text-2xl font-bold" style={{ color: "#ef4444" }}>
@@ -489,6 +511,91 @@ export default function SharedReport() {
                   <p className="text-sm text-muted-foreground mb-1">Recoverable Amount</p>
                   <p className="text-2xl font-bold" style={{ color: "#36bf78" }}>
                     {formatCurrency(frictionSummary.recoverableAmount)}
+                  </p>
+                </div>
+                <div className="text-center p-4 bg-muted/50 rounded-lg">
+                  <p className="text-sm text-muted-foreground mb-1">Recovery Rate</p>
+                  <p className="text-2xl font-bold" style={{ color: "#001278" }}>
+                    {frictionSummary.totalFrictionCost > 0
+                      ? `${((frictionSummary.recoverableAmount / frictionSummary.totalFrictionCost) * 100).toFixed(1)}%`
+                      : "N/A"}
+                  </p>
+                </div>
+              </div>
+
+              {frictionRecoveryRows.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border text-left">
+                        <th className="pb-3 font-medium text-muted-foreground">Friction Point</th>
+                        <th className="pb-3 font-medium text-muted-foreground text-right">Annual Cost</th>
+                        <th className="pb-3 font-medium text-muted-foreground">Mapped Use Case</th>
+                        <th className="pb-3 font-medium text-muted-foreground text-right">Recovery</th>
+                        <th className="pb-3 font-medium text-muted-foreground text-right">Rate</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {frictionRecoveryRows.map((row, i) => (
+                        <tr key={i}>
+                          <td className="py-3 text-foreground text-xs max-w-[200px] truncate">
+                            {row.frictionPoint}
+                          </td>
+                          <td className="py-3 text-right font-mono font-medium" style={{ color: "#ef4444" }}>
+                            {formatCurrency(row.annualCost)}
+                          </td>
+                          <td className="py-3 text-xs text-muted-foreground">
+                            {row.mappedUseCase}
+                          </td>
+                          <td className="py-3 text-right font-mono font-medium" style={{ color: "#36bf78" }}>
+                            {formatCurrency(row.recoveryAmount)}
+                          </td>
+                          <td className="py-3 text-right font-mono">
+                            {row.recoveryPct.toFixed(0)}%
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Scenario Analysis */}
+        {scenarioAnalysis && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg">Scenario Analysis</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-4 rounded-lg border-l-4" style={{ borderColor: "#94a3b8", backgroundColor: "var(--muted)" }}>
+                  <p className="text-xs text-muted-foreground uppercase font-medium mb-2">Conservative (&times;0.6)</p>
+                  <p className="text-xl font-bold text-foreground">
+                    {scenarioAnalysis.conservative?.annualBenefit || "N/A"}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    NPV: {scenarioAnalysis.conservative?.npv || "N/A"}
+                  </p>
+                </div>
+                <div className="p-4 rounded-lg border-l-4" style={{ borderColor: "#001278", backgroundColor: "var(--muted)" }}>
+                  <p className="text-xs text-muted-foreground uppercase font-medium mb-2">Moderate (Base Case)</p>
+                  <p className="text-xl font-bold" style={{ color: "#001278" }}>
+                    {scenarioAnalysis.moderate?.annualBenefit || "N/A"}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    NPV: {scenarioAnalysis.moderate?.npv || "N/A"}
+                  </p>
+                </div>
+                <div className="p-4 rounded-lg border-l-4" style={{ borderColor: "#36bf78", backgroundColor: "var(--muted)" }}>
+                  <p className="text-xs text-muted-foreground uppercase font-medium mb-2">Aggressive (&times;1.3)</p>
+                  <p className="text-xl font-bold" style={{ color: "#36bf78" }}>
+                    {scenarioAnalysis.aggressive?.annualBenefit || "N/A"}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    NPV: {scenarioAnalysis.aggressive?.npv || "N/A"}
                   </p>
                 </div>
               </div>

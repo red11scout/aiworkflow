@@ -14,6 +14,8 @@ import {
   calculateMonthlyTokens,
   calculateAnnualTokenCost,
   calculateValueScore,
+  calculateValueScoreLegacy,
+  calculateValueRatio,
   calculateTTVScore,
   calculatePriorityScore,
   determinePriorityTier,
@@ -36,6 +38,8 @@ import type {
   ScenarioAnalysis,
   MultiYearProjection,
   ExecutiveDashboard,
+  UseCase,
+  FrictionPoint,
 } from "@shared/types";
 
 // =========================================================================
@@ -163,12 +167,46 @@ export function recalculateReadiness(
 // RECALCULATE PRIORITIES
 // =========================================================================
 
+/**
+ * Find the friction annual cost for a given benefit by tracing:
+ * benefit → use case (via useCaseId) → friction point (via targetFriction text match)
+ */
+function findFrictionCostForBenefit(
+  benefit: BenefitQuantification,
+  useCases: UseCase[],
+  frictionPoints: FrictionPoint[],
+): number {
+  const uc = useCases.find((u) => u.id === benefit.useCaseId);
+  if (!uc) return 0;
+
+  // Match by targetFriction text against fp.frictionPoint
+  const fp = frictionPoints.find(
+    (f) => f.frictionPoint === uc.targetFriction || f.id === uc.id,
+  );
+  if (!fp) return 0;
+
+  return parseCurrencyString(fp.estimatedAnnualCost);
+}
+
 export function recalculatePriorities(
   benefits: BenefitQuantification[],
   readiness: ReadinessModel[],
+  frictionPoints?: FrictionPoint[],
+  useCases?: UseCase[],
 ): PriorityScore[] {
-  // Parse expected values for normalization
   const expectedValues = benefits.map((b) => parseCurrencyString(b.expectedValue));
+
+  // Determine if we can use the friction-based value score
+  const hasFrictionData = frictionPoints && frictionPoints.length > 0 && useCases && useCases.length > 0;
+
+  // Pre-compute all value ratios for normalization (friction-based path)
+  let allRatios: number[] = [];
+  if (hasFrictionData) {
+    allRatios = benefits.map((b, idx) => {
+      const frictionCost = findFrictionCostForBenefit(b, useCases!, frictionPoints!);
+      return calculateValueRatio(expectedValues[idx], frictionCost);
+    });
+  }
 
   return benefits.map((b, idx) => {
     const r = readiness.find((r) => r.useCaseId === b.useCaseId);
@@ -176,7 +214,15 @@ export function recalculatePriorities(
     const ttv = r?.timeToValue || 12;
     const ev = expectedValues[idx];
 
-    const valueScore = calculateValueScore(ev, expectedValues);
+    // Use friction-based value score when data is available, otherwise legacy
+    let valueScore: number;
+    if (hasFrictionData) {
+      const frictionCost = findFrictionCostForBenefit(b, useCases!, frictionPoints!);
+      valueScore = calculateValueScore(ev, frictionCost, allRatios);
+    } else {
+      valueScore = calculateValueScoreLegacy(ev, expectedValues);
+    }
+
     const ttvScore = calculateTTVScore(ttv);
     const priority = calculatePriorityScore(
       valueScore,

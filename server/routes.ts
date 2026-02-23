@@ -174,6 +174,7 @@ export async function registerRoutes(server: Server, app: Express) {
         companyName: rawJson.companyName,
         industry: rawJson.industry || "",
         companyOverview: parsed.companyOverview,
+        validationWarnings: parsed.validationWarnings || [],
       });
     } catch (err: any) {
       console.error("Error parsing import:", err.message);
@@ -332,8 +333,8 @@ export async function registerRoutes(server: Server, app: Express) {
   });
 
   app.post("/api/calculate/priorities", async (req, res) => {
-    const { benefits, readiness } = req.body;
-    const result = recalculatePriorities(benefits, readiness);
+    const { benefits, readiness, frictionPoints, useCases } = req.body;
+    const result = recalculatePriorities(benefits, readiness, frictionPoints, useCases);
     res.json(result);
   });
 
@@ -363,12 +364,16 @@ export async function registerRoutes(server: Server, app: Express) {
 
     const benefits = scenario.benefits || [];
     const readinessData = scenario.readiness || [];
+    const frictionData = (scenario.frictionPoints || []) as any[];
+    const useCaseData = (scenario.useCases || []) as any[];
 
     const updatedReadiness = recalculateReadiness(readinessData);
     const updatedBenefits = recalculateBenefits(benefits);
     const updatedPriorities = recalculatePriorities(
       updatedBenefits,
       updatedReadiness,
+      frictionData,
+      useCaseData,
     );
     const updatedScenarios = generateScenarioAnalysis(updatedBenefits);
     const updatedMultiYear = generateMultiYearProjection(updatedBenefits);
@@ -701,6 +706,58 @@ IMPORTANT: Ground the metrics in the friction point data provided. The cost redu
       `attachment; filename="${project.companyName.replace(/[^a-zA-Z0-9]/g, "_")}_AI_Workflow.xlsx"`,
     );
     res.send(buffer);
+  });
+
+  // JSON export — reconstructs the discover-compatible format from scenario data
+  app.post("/api/projects/:id/export/json", async (req, res) => {
+    const { scenarioId } = req.body;
+    const project = await storage.getProject(req.params.id);
+    if (!project)
+      return res.status(404).json({ message: "Project not found" });
+
+    const scenario = scenarioId
+      ? await storage.getScenario(scenarioId)
+      : await storage.getActiveScenario(project.id);
+
+    if (!scenario)
+      return res.status(404).json({ message: "Scenario not found" });
+
+    const exportData = {
+      exportVersion: "2.0",
+      exportedAt: new Date().toISOString(),
+      source: "BlueAlly AI Workflow Orchestration",
+      company: {
+        name: project.companyName,
+        industry: project.industry,
+        description: project.description || "",
+      },
+      analysis: {
+        steps: [
+          { step: 0, name: "Company Overview", content: (scenario as any).companyOverview || "" },
+          { step: 1, name: "Strategic Themes", data: scenario.strategicThemes || [] },
+          { step: 2, name: "Business Functions & KPIs", data: scenario.businessFunctions || [] },
+          { step: 3, name: "Friction Points", data: scenario.frictionPoints || [] },
+          { step: 4, name: "AI Use Cases", data: scenario.useCases || [] },
+          { step: 5, name: "Benefits Quantification", data: scenario.benefits || [] },
+          { step: 6, name: "Readiness & Token Modeling", data: scenario.readiness || [] },
+          { step: 7, name: "Priority Scoring", data: scenario.priorities || [] },
+        ],
+        executiveSummary: scenario.executiveSummary || null,
+        executiveDashboard: scenario.executiveDashboard || null,
+        scenarioAnalysis: scenario.scenarioAnalysis || null,
+        workflowMaps: scenario.workflowMaps || [],
+      },
+      scenario: {
+        id: scenario.id,
+        name: scenario.name,
+        completedSteps: scenario.completedSteps || [],
+      },
+    };
+
+    const filename = `${project.companyName.replace(/[^a-zA-Z0-9]/g, "_")}_AI_Workflow_Export.json`;
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(JSON.stringify(exportData, null, 2));
   });
 }
 

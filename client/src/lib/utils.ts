@@ -22,3 +22,12 @@ export function parseCurrencyString(value: string): number {
   if (clean.endsWith("B")) return parseFloat(clean) * 1_000_000_000;
   return parseFloat(clean) || 0;
 }
+
+export function formatCurrencyFull(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(value);
+}

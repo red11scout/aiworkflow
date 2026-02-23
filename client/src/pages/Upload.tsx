@@ -64,6 +64,7 @@ export default function Upload() {
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<string | null>(null);
   const [importSummary, setImportSummary] = useState<ImportSummary | null>(null);
+  const [validationWarnings, setValidationWarnings] = useState<string[]>([]);
 
   // Editable company overview fields
   const [companyName, setCompanyName] = useState("");
@@ -144,6 +145,13 @@ export default function Upload() {
       if (data.companyName) setCompanyName(data.companyName);
       if (data.industry) setIndustry(data.industry);
       if (data.description) setDescription(data.description);
+
+      // Capture validation warnings (e.g., unmapped friction points)
+      if (data.validationWarnings?.length > 0) {
+        setValidationWarnings(data.validationWarnings);
+      } else {
+        setValidationWarnings([]);
+      }
 
       toast.success("Data imported successfully");
     },
@@ -371,34 +379,58 @@ export default function Upload() {
 
         {/* Import Summary */}
         {importSummary && (
-          <div>
-            <h2 className="text-lg font-semibold text-foreground mb-4">
-              Import Summary
-            </h2>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-              {summaryCards.map(({ label, count, icon: Icon, color }) => (
-                <Card key={label} className="text-center">
-                  <CardContent className="pt-5 pb-4">
-                    <div
-                      className="w-10 h-10 rounded-lg mx-auto mb-3 flex items-center justify-center"
-                      style={{ backgroundColor: `${color}15` }}
-                    >
-                      <Icon
-                        className="w-5 h-5"
-                        style={{ color }}
-                      />
-                    </div>
-                    <div className="text-2xl font-bold text-foreground">
-                      {count}
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-1">
-                      {label}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+          <>
+            <div>
+              <h2 className="text-lg font-semibold text-foreground mb-4">
+                Import Summary
+              </h2>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                {summaryCards.map(({ label, count, icon: Icon, color }) => (
+                  <Card key={label} className="text-center">
+                    <CardContent className="pt-5 pb-4">
+                      <div
+                        className="w-10 h-10 rounded-lg mx-auto mb-3 flex items-center justify-center"
+                        style={{ backgroundColor: `${color}15` }}
+                      >
+                        <Icon
+                          className="w-5 h-5"
+                          style={{ color }}
+                        />
+                      </div>
+                      <div className="text-2xl font-bold text-foreground">
+                        {count}
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        {label}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
             </div>
-          </div>
+
+            {/* Validation Warnings */}
+            {validationWarnings.length > 0 && (
+              <Card className="mt-4 border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/20">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-amber-800 dark:text-amber-200 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4" />
+                    Import Validation
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ul className="space-y-1 text-sm text-amber-700 dark:text-amber-300">
+                    {validationWarnings.map((w, i) => (
+                      <li key={i} className="leading-relaxed">{w}</li>
+                    ))}
+                  </ul>
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+                    Auto-generated use cases have conservative estimates. Review and customize them in Step 4 (Use Cases).
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+          </>
         )}
 
         {/* Company Overview */}

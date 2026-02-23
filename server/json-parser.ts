@@ -8,6 +8,7 @@ import type {
   ReadinessModel,
   PriorityScore,
 } from "@shared/types";
+import { parseCurrencyString, formatCurrency } from "@shared/formulas";
 
 /**
  * Maps CognoResearcher "Primary Pattern" display names to aiworkflow pattern IDs.
@@ -191,6 +192,103 @@ export function parseImportedJSON(raw: ImportedAnalysis) {
     recommendedPhase: p["Recommended Phase"] || "Q4",
   }));
 
+  // -----------------------------------------------------------------------
+  // 1:1:1 VALIDATION — detect unmapped friction points and auto-generate
+  // placeholder use cases, benefits, and readiness entries to close the gap.
+  // -----------------------------------------------------------------------
+  const validationWarnings: string[] = [];
+
+  const mappedFrictionTexts = new Set(useCases.map((uc) => uc.targetFriction));
+  const unmappedFrictions = frictionPoints.filter(
+    (fp) => !mappedFrictionTexts.has(fp.frictionPoint),
+  );
+
+  if (unmappedFrictions.length > 0) {
+    validationWarnings.push(
+      `${unmappedFrictions.length} friction point(s) have no matching use case and were auto-generated: ${unmappedFrictions.map((fp) => `"${fp.frictionPoint.slice(0, 60)}…"`).join("; ")}`,
+    );
+
+    unmappedFrictions.forEach((fp, i) => {
+      const ucNum = useCases.length + i + 1;
+      const ucId = `UC-${String(ucNum).padStart(2, "0")}`;
+      const shortName = fp.frictionPoint.split(" ").slice(0, 6).join(" ");
+
+      // Auto-generate use case
+      useCases.push({
+        id: ucId,
+        name: `AI-Assisted ${shortName}`,
+        description: `Auto-generated use case targeting unmapped friction: ${fp.frictionPoint}`,
+        function: fp.function || "",
+        subFunction: fp.subFunction || "",
+        aiPrimitives: ["Workflow Automation"],
+        hitlCheckpoint: "Manager review and approval before execution",
+        targetFriction: fp.frictionPoint,
+        strategicTheme: fp.strategicTheme || "",
+        agenticPattern: "",
+        patternRationale: "",
+        desiredOutcomes: [],
+        dataTypes: [],
+        integrations: [],
+      });
+
+      // Auto-generate conservative benefit (25% friction recovery)
+      const frictionCost = parseCurrencyString(fp.estimatedAnnualCost);
+      const hoursSaved = Math.round((fp.annualHours || 0) * 0.25);
+      const rate = fp.loadedHourlyRate || fp.hourlyRate || 65;
+      const costBenefit = hoursSaved * rate * 1.35 * 0.9 * 0.75;
+      const prob = 0.6;
+
+      benefits.push({
+        id: ucId,
+        useCaseId: ucId,
+        useCaseName: `AI-Assisted ${shortName}`,
+        strategicTheme: fp.strategicTheme || "",
+        costBenefit: formatCurrency(costBenefit),
+        costFormula: `${hoursSaved} hrs × $${rate}/hr × 1.35 × 0.9 × 0.75`,
+        costFormulaLabels: {
+          components: [
+            { label: "Hours Saved", value: hoursSaved },
+            { label: "Loaded Hourly Rate", value: rate },
+            { label: "Benefits Loading", value: 1.35 },
+            { label: "Adoption Rate", value: 0.9 },
+            { label: "Data Maturity", value: 0.75 },
+          ],
+        },
+        revenueBenefit: "$0",
+        revenueFormula: "No direct impact",
+        revenueFormulaLabels: { components: [] },
+        riskBenefit: "$0",
+        riskFormula: "No direct impact",
+        riskFormulaLabels: { components: [] },
+        cashFlowBenefit: "$0",
+        cashFlowFormula: "No direct impact",
+        cashFlowFormulaLabels: { components: [] },
+        totalAnnualValue: formatCurrency(costBenefit),
+        expectedValue: formatCurrency(costBenefit * prob),
+        probabilityOfSuccess: prob,
+      });
+
+      // Auto-generate midpoint readiness entry
+      readiness.push({
+        id: ucId,
+        useCaseId: ucId,
+        useCaseName: `AI-Assisted ${shortName}`,
+        strategicTheme: fp.strategicTheme || "",
+        dataAvailability: 5,
+        technicalInfrastructure: 5,
+        organizationalCapacity: 5,
+        governance: 5,
+        readinessScore: 5,
+        timeToValue: 12,
+        runsPerMonth: 100,
+        inputTokensPerRun: 2000,
+        outputTokensPerRun: 1000,
+        monthlyTokens: 300000,
+        annualTokenCost: "$16",
+      });
+    });
+  }
+
   return {
     companyOverview,
     strategicThemes,
@@ -206,5 +304,6 @@ export function parseImportedJSON(raw: ImportedAnalysis) {
     multiYear: raw.analysis.multiYearProjection || null,
     frictionRecovery: raw.analysis.frictionRecovery || null,
     analysisSummary: raw.analysis.summary || "",
+    validationWarnings,
   };
 }

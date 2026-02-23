@@ -409,7 +409,7 @@ function BubbleChart({
         opacity="0.6"
         transform={`rotate(-90, 16, ${CHART_PAD.top + PLOT_H / 2})`}
       >
-        Normalized Annual Value
+        Value Score (EV / Friction Cost)
       </text>
 
       {/* ---- Bubbles ---- */}
@@ -650,7 +650,8 @@ export default function Matrix() {
               Value-Readiness Matrix
             </h1>
             <p className="text-sm text-muted-foreground mt-1 max-w-xl leading-relaxed">
-              Initiatives mapped by Normalized Annual Value vs. Readiness Score.
+              Initiatives mapped by Value Score (Expected Value / Friction
+              Cost) vs. Readiness Score.
               <br />
               Bubble size indicates Time-to-Value (larger = faster
               time-to-value).

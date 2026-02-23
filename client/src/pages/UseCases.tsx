@@ -1,10 +1,10 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useLocation, useParams } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import Layout from "@/components/Layout";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -15,9 +15,12 @@ import {
   Trash2,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   X,
   AlertCircle,
   Sparkles,
+  ShieldCheck,
+  Pencil,
 } from "lucide-react";
 import {
   AGENTIC_PATTERNS,
@@ -28,7 +31,7 @@ import {
 } from "@shared/patterns";
 import { DATA_TYPES } from "@shared/assumptions";
 
-// --- Types ---
+// --- Types (matches shared/types.ts UseCase) ---
 
 interface UseCase {
   id: string;
@@ -40,8 +43,8 @@ interface UseCase {
   agenticPattern?: string;
   patternRationale?: string;
   hitlCheckpoint: string;
-  targetFrictionId: string;
-  strategicThemeId: string;
+  targetFriction: string;
+  strategicTheme: string;
   desiredOutcomes?: string[];
   dataTypes?: string[];
   integrations?: string[];
@@ -49,31 +52,30 @@ interface UseCase {
 
 // --- Helpers ---
 
-function getComplexityColor(complexity: string) {
-  switch (complexity) {
-    case "low":
-      return "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400";
-    case "medium":
-      return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400";
-    case "high":
-      return "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400";
-    case "very_high":
-      return "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400";
-    default:
-      return "bg-muted text-muted-foreground";
-  }
-}
-
-function formatComplexity(complexity: string) {
-  return complexity.replace("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
 function generateUseCaseId(existingCases: UseCase[]): string {
   const maxNum = existingCases.reduce((max, uc) => {
     const match = uc.id.match(/UC-(\d+)/);
     return match ? Math.max(max, parseInt(match[1], 10)) : max;
   }, 0);
   return `UC-${String(maxNum + 1).padStart(2, "0")}`;
+}
+
+function getPatternColor(patternId: string | undefined): string {
+  if (!patternId) return "bg-muted text-muted-foreground";
+  const pattern = getPatternById(patternId);
+  if (!pattern) return "bg-muted text-muted-foreground";
+  switch (pattern.complexity) {
+    case "low":
+      return "bg-green-600 text-white";
+    case "medium":
+      return "bg-[#02a2fd] text-white";
+    case "high":
+      return "bg-indigo-600 text-white";
+    case "very_high":
+      return "bg-purple-600 text-white";
+    default:
+      return "bg-muted text-muted-foreground";
+  }
 }
 
 // --- Tag Input Component ---
@@ -164,7 +166,7 @@ function PatternSelector({
   );
 }
 
-// --- Use Case Card ---
+// --- Use Case Card (Cogno-Research-Inspired Layout) ---
 
 function UseCaseCard({
   useCase,
@@ -181,6 +183,8 @@ function UseCaseCard({
   onUpdate: (updated: UseCase) => void;
   onDelete: () => void;
 }) {
+  const [editing, setEditing] = useState(false);
+
   const selectedPattern = useCase.agenticPattern
     ? getPatternById(useCase.agenticPattern)
     : undefined;
@@ -198,247 +202,354 @@ function UseCaseCard({
   };
 
   return (
-    <Card className="relative">
-      <CardHeader className="pb-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div
-              className="w-10 h-10 rounded-lg flex items-center justify-center text-white text-xs font-bold"
-              style={{ background: "linear-gradient(135deg, #001278, #02a2fd)" }}
-            >
+    <Card className="relative overflow-hidden">
+      {/* ---- Header Row: ID + Name + Tags ---- */}
+      <div className="px-6 pt-5 pb-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3 flex-1 min-w-0">
+            <span className="text-xs font-mono text-muted-foreground mt-1 shrink-0">
               {useCase.id}
-            </div>
-            <div className="flex-1">
-              <Input
-                value={useCase.name}
-                onChange={(e) => updateField("name", e.target.value)}
-                className="font-semibold text-base border-none shadow-none px-0 h-auto focus-visible:ring-0"
-                placeholder="Use case name"
-              />
-              <div className="flex items-center gap-2 mt-1">
-                <Badge variant="outline" className="text-xs">
-                  {useCase.function || "No function"}
-                </Badge>
-                {useCase.subFunction && (
-                  <Badge variant="secondary" className="text-xs">
-                    {useCase.subFunction}
-                  </Badge>
-                )}
-                {selectedPattern && (
-                  <Badge
-                    className={`text-xs ${getComplexityColor(selectedPattern.complexity)}`}
-                  >
-                    {formatComplexity(selectedPattern.complexity)}
-                  </Badge>
-                )}
-              </div>
+            </span>
+            <div className="flex-1 min-w-0">
+              {editing ? (
+                <Input
+                  value={useCase.name}
+                  onChange={(e) => updateField("name", e.target.value)}
+                  className="font-semibold text-lg border-none shadow-none px-0 h-auto focus-visible:ring-0"
+                  placeholder="Use case name"
+                  autoFocus
+                  onBlur={() => setEditing(false)}
+                />
+              ) : (
+                <h3
+                  className="font-semibold text-lg text-foreground cursor-pointer hover:text-[#02a2fd] transition-colors"
+                  onClick={() => setEditing(true)}
+                >
+                  {useCase.name || "Untitled Use Case"}
+                </h3>
+              )}
             </div>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onDelete}
-            className="text-muted-foreground hover:text-destructive"
-          >
-            <Trash2 className="w-4 h-4" />
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            {selectedPattern && (
+              <Badge className={`text-xs ${getPatternColor(useCase.agenticPattern)}`}>
+                {selectedPattern.name}
+              </Badge>
+            )}
+            {useCase.function && (
+              <Badge variant="secondary" className="text-xs">
+                {useCase.function}
+              </Badge>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setEditing(!editing)}
+              className="text-muted-foreground hover:text-foreground h-8 w-8"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onDelete}
+              className="text-muted-foreground hover:text-destructive h-8 w-8"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </Button>
+          </div>
         </div>
-      </CardHeader>
+      </div>
 
-      <CardContent className="space-y-6">
-        {/* Description */}
-        <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">Description</Label>
+      <CardContent className="space-y-4 pt-0">
+        {/* ---- Description ---- */}
+        {editing ? (
           <Textarea
             value={useCase.description}
             onChange={(e) => updateField("description", e.target.value)}
             placeholder="Describe the use case..."
             rows={3}
           />
-        </div>
+        ) : useCase.description ? (
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            {useCase.description}
+          </p>
+        ) : null}
 
-        {/* Function & Sub-Function */}
-        <div className="grid grid-cols-2 gap-4">
+        {/* ---- Target Friction ---- */}
+        {editing ? (
           <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Function</Label>
-            <Input
-              value={useCase.function}
-              onChange={(e) => updateField("function", e.target.value)}
-              placeholder="e.g. Finance, Operations"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Sub-Function</Label>
-            <Input
-              value={useCase.subFunction}
-              onChange={(e) => updateField("subFunction", e.target.value)}
-              placeholder="e.g. Accounts Payable"
-            />
-          </div>
-        </div>
-
-        {/* AI Primitives */}
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">AI Primitives</Label>
-          <div className="flex flex-wrap gap-2">
-            {AI_PRIMITIVES.map((primitive) => {
-              const isSelected = (useCase.aiPrimitives || []).includes(primitive);
-              return (
-                <button
-                  key={primitive}
-                  type="button"
-                  onClick={() => togglePrimitive(primitive)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-                    isSelected
-                      ? "border-[#02a2fd] bg-[#02a2fd]/10 text-[#02a2fd]"
-                      : "border-border bg-background text-muted-foreground hover:border-muted-foreground/50"
-                  }`}
-                >
-                  {primitive}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Agentic Design Pattern */}
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">
-            Agentic Design Pattern
-          </Label>
-          <PatternSelector
-            value={useCase.agenticPattern}
-            onChange={(patternId) => updateField("agenticPattern", patternId)}
-          />
-          {selectedPattern && (
-            <div className="mt-2 p-3 rounded-lg bg-muted/50 text-sm text-muted-foreground">
-              <p>{selectedPattern.description}</p>
-              <div className="mt-2 flex items-center gap-2">
-                <span className="text-xs font-medium">Recommended primitives:</span>
-                {selectedPattern.primitives.map((p) => (
-                  <Badge key={p} variant="outline" className="text-xs">
-                    {p}
-                  </Badge>
-                ))}
-              </div>
-            </div>
-          )}
-          <div className="space-y-1.5 mt-2">
-            <Label className="text-xs text-muted-foreground">
-              Pattern Rationale
-            </Label>
-            <Input
-              value={useCase.patternRationale || ""}
-              onChange={(e) => updateField("patternRationale", e.target.value)}
-              placeholder="Why this pattern fits this use case..."
-            />
-          </div>
-        </div>
-
-        {/* HITL Checkpoint */}
-        <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">
-            Human-in-the-Loop Checkpoint
-          </Label>
-          <Input
-            value={useCase.hitlCheckpoint}
-            onChange={(e) => updateField("hitlCheckpoint", e.target.value)}
-            placeholder="e.g. Manager approval before invoice processing"
-          />
-        </div>
-
-        {/* Target Friction & Strategic Theme */}
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">
-              Target Friction Point
-            </Label>
+            <Label className="text-xs text-muted-foreground">Target Friction Point</Label>
             <select
-              value={useCase.targetFrictionId || ""}
-              onChange={(e) => updateField("targetFrictionId", e.target.value)}
+              value={useCase.targetFriction || ""}
+              onChange={(e) => updateField("targetFriction", e.target.value)}
               className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
               <option value="">Select friction point...</option>
               {frictionPoints.map((fp: any) => (
-                <option key={fp.id} value={fp.id}>
-                  {fp.id}: {fp.name || fp.description?.slice(0, 50)}
+                <option key={fp.id} value={fp.frictionPoint}>
+                  {fp.id}: {(fp.frictionPoint || "").slice(0, 80)}
                 </option>
               ))}
             </select>
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">
-              Strategic Theme
-            </Label>
-            <select
-              value={useCase.strategicThemeId || ""}
-              onChange={(e) => updateField("strategicThemeId", e.target.value)}
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        ) : useCase.targetFriction ? (
+          <div className="text-sm">
+            <span className="font-medium text-[#02a2fd]">Target Friction: </span>
+            <span className="text-muted-foreground">{useCase.targetFriction}</span>
+          </div>
+        ) : null}
+
+        {/* ---- AI Primitives ---- */}
+        <div className="flex flex-wrap gap-2">
+          {(useCase.aiPrimitives || []).map((primitive) => (
+            <span
+              key={primitive}
+              onClick={() => editing && togglePrimitive(primitive)}
+              className={`px-3 py-1 rounded-md text-xs font-medium border border-[#02a2fd]/30 bg-[#02a2fd]/5 text-[#02a2fd] ${
+                editing ? "cursor-pointer hover:bg-[#02a2fd]/15" : ""
+              }`}
             >
-              <option value="">Select theme...</option>
-              {strategicThemes.map((theme: any) => (
-                <option key={theme.id} value={theme.id}>
-                  {theme.name || theme.id}
-                </option>
-              ))}
-            </select>
+              {primitive}
+            </span>
+          ))}
+          {editing &&
+            AI_PRIMITIVES.filter((p) => !(useCase.aiPrimitives || []).includes(p)).map(
+              (primitive) => (
+                <button
+                  key={primitive}
+                  type="button"
+                  onClick={() => togglePrimitive(primitive)}
+                  className="px-3 py-1 rounded-md text-xs font-medium border border-border bg-background text-muted-foreground hover:border-muted-foreground/50 transition-all"
+                >
+                  {primitive}
+                </button>
+              ),
+            )}
+        </div>
+
+        {/* ---- Agentic Pattern Analysis Sub-Card ---- */}
+        <div className="rounded-lg bg-muted/40 dark:bg-muted/20 p-4 space-y-3">
+          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Agentic Pattern Analysis
           </div>
-        </div>
-
-        {/* Desired Outcomes */}
-        <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">
-            Desired Outcomes
-          </Label>
-          <TagInput
-            tags={useCase.desiredOutcomes || []}
-            onChange={(tags) => updateField("desiredOutcomes", tags)}
-            placeholder="Type an outcome and press Enter..."
-          />
-        </div>
-
-        {/* Data Types & Integrations */}
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label className="text-xs text-muted-foreground">Data Types</Label>
-            <div className="flex flex-wrap gap-2">
-              {DATA_TYPES.map((dt) => {
-                const isSelected = (useCase.dataTypes || []).includes(dt.id);
-                return (
-                  <button
-                    key={dt.id}
-                    type="button"
-                    onClick={() => {
-                      const current = useCase.dataTypes || [];
-                      const updated = isSelected
-                        ? current.filter((d) => d !== dt.id)
-                        : [...current, dt.id];
-                      updateField("dataTypes", updated);
-                    }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-                      isSelected
-                        ? "border-[#02a2fd] bg-[#02a2fd]/10 text-[#02a2fd]"
-                        : "border-border bg-background text-muted-foreground hover:border-muted-foreground/50"
-                    }`}
-                    title={dt.description}
-                  >
-                    {dt.label}
-                  </button>
-                );
-              })}
+          <div className="flex items-start gap-8">
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
+                Primary Pattern
+              </div>
+              {editing ? (
+                <PatternSelector
+                  value={useCase.agenticPattern}
+                  onChange={(patternId) => updateField("agenticPattern", patternId)}
+                />
+              ) : selectedPattern ? (
+                <Badge className={`text-xs ${getPatternColor(useCase.agenticPattern)}`}>
+                  {selectedPattern.name}
+                </Badge>
+              ) : (
+                <span className="text-xs text-muted-foreground">Not selected</span>
+              )}
             </div>
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Integrations</Label>
-            <TagInput
-              tags={useCase.integrations || []}
-              onChange={(tags) => updateField("integrations", tags)}
-              placeholder="e.g. SAP, Salesforce..."
-            />
-          </div>
+          {editing ? (
+            <div className="space-y-1.5">
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                Rationale
+              </div>
+              <Textarea
+                value={useCase.patternRationale || ""}
+                onChange={(e) => updateField("patternRationale", e.target.value)}
+                placeholder="Why this pattern fits this use case..."
+                rows={2}
+                className="text-sm"
+              />
+            </div>
+          ) : useCase.patternRationale ? (
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
+                Rationale
+              </div>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                {useCase.patternRationale}
+              </p>
+            </div>
+          ) : null}
         </div>
+
+        {/* ---- Edit-mode-only sections ---- */}
+        {editing && (
+          <div className="space-y-4 border-t border-border pt-4">
+            {/* Function & Sub-Function */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Function</Label>
+                <Input
+                  value={useCase.function}
+                  onChange={(e) => updateField("function", e.target.value)}
+                  placeholder="e.g. Finance, Operations"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Sub-Function</Label>
+                <Input
+                  value={useCase.subFunction}
+                  onChange={(e) => updateField("subFunction", e.target.value)}
+                  placeholder="e.g. Accounts Payable"
+                />
+              </div>
+            </div>
+
+            {/* Strategic Theme */}
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Strategic Theme</Label>
+              <select
+                value={useCase.strategicTheme || ""}
+                onChange={(e) => updateField("strategicTheme", e.target.value)}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <option value="">Select theme...</option>
+                {strategicThemes.map((theme: any) => (
+                  <option key={theme.id} value={theme.name || theme.id}>
+                    {theme.name || theme.id}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Desired Outcomes */}
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Desired Outcomes</Label>
+              <TagInput
+                tags={useCase.desiredOutcomes || []}
+                onChange={(tags) => updateField("desiredOutcomes", tags)}
+                placeholder="Type an outcome and press Enter..."
+              />
+            </div>
+
+            {/* Data Types & Integrations */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Data Types</Label>
+                <div className="flex flex-wrap gap-2">
+                  {DATA_TYPES.map((dt) => {
+                    const isSelected = (useCase.dataTypes || []).includes(dt.id);
+                    return (
+                      <button
+                        key={dt.id}
+                        type="button"
+                        onClick={() => {
+                          const current = useCase.dataTypes || [];
+                          const updated = isSelected
+                            ? current.filter((d) => d !== dt.id)
+                            : [...current, dt.id];
+                          updateField("dataTypes", updated);
+                        }}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                          isSelected
+                            ? "border-[#02a2fd] bg-[#02a2fd]/10 text-[#02a2fd]"
+                            : "border-border bg-background text-muted-foreground hover:border-muted-foreground/50"
+                        }`}
+                        title={dt.description}
+                      >
+                        {dt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Integrations</Label>
+                <TagInput
+                  tags={useCase.integrations || []}
+                  onChange={(tags) => updateField("integrations", tags)}
+                  placeholder="e.g. SAP, Salesforce..."
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ---- HITL Bar ---- */}
+        {(useCase.hitlCheckpoint || editing) && (
+          <div className="rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 px-4 py-3 flex items-start gap-2.5">
+            <ShieldCheck className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+            {editing ? (
+              <Input
+                value={useCase.hitlCheckpoint}
+                onChange={(e) => updateField("hitlCheckpoint", e.target.value)}
+                placeholder="e.g. Manager approval before invoice processing"
+                className="text-sm border-none shadow-none px-0 h-auto bg-transparent focus-visible:ring-0"
+              />
+            ) : (
+              <p className="text-sm text-amber-800 dark:text-amber-200 leading-relaxed">
+                <span className="font-medium">HITL: </span>
+                {useCase.hitlCheckpoint}
+              </p>
+            )}
+          </div>
+        )}
       </CardContent>
     </Card>
+  );
+}
+
+// --- Theme Group (Collapsible) ---
+
+function ThemeGroup({
+  themeName,
+  useCases,
+  allUseCases,
+  frictionPoints,
+  strategicThemes,
+  onUpdate,
+  onDelete,
+}: {
+  themeName: string;
+  useCases: { uc: UseCase; globalIndex: number }[];
+  allUseCases: UseCase[];
+  frictionPoints: any[];
+  strategicThemes: any[];
+  onUpdate: (globalIndex: number, updated: UseCase) => void;
+  onDelete: (globalIndex: number) => void;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+
+  return (
+    <div className="space-y-3">
+      <button
+        type="button"
+        onClick={() => setCollapsed(!collapsed)}
+        className="flex items-center gap-2 text-left w-full group"
+      >
+        <ChevronDown
+          className={`w-4 h-4 text-muted-foreground transition-transform ${
+            collapsed ? "-rotate-90" : ""
+          }`}
+        />
+        <span className="font-semibold text-foreground">
+          {themeName || "Ungrouped"}
+        </span>
+        <span className="text-sm text-muted-foreground">
+          ({useCases.length} use case{useCases.length !== 1 ? "s" : ""})
+        </span>
+      </button>
+      {!collapsed && (
+        <div className="space-y-4 pl-6 border-l-2 border-[#02a2fd]/20">
+          {useCases.map(({ uc, globalIndex }) => (
+            <UseCaseCard
+              key={uc.id}
+              useCase={uc}
+              index={globalIndex}
+              frictionPoints={frictionPoints}
+              strategicThemes={strategicThemes}
+              onUpdate={(updated) => onUpdate(globalIndex, updated)}
+              onDelete={() => onDelete(globalIndex)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -458,6 +569,17 @@ export default function UseCases() {
   const useCases: UseCase[] = activeScenario?.useCases || [];
   const frictionPoints: any[] = activeScenario?.frictionPoints || [];
   const strategicThemes: any[] = activeScenario?.strategicThemes || [];
+
+  // Group use cases by strategic theme
+  const grouped = useMemo(() => {
+    const groups: Record<string, { uc: UseCase; globalIndex: number }[]> = {};
+    useCases.forEach((uc, i) => {
+      const theme = uc.strategicTheme || "Ungrouped";
+      if (!groups[theme]) groups[theme] = [];
+      groups[theme].push({ uc, globalIndex: i });
+    });
+    return groups;
+  }, [useCases]);
 
   const saveMutation = useMutation({
     mutationFn: async (updatedUseCases: UseCase[]) => {
@@ -493,8 +615,8 @@ export default function UseCases() {
       agenticPattern: undefined,
       patternRationale: "",
       hitlCheckpoint: "",
-      targetFrictionId: "",
-      strategicThemeId: "",
+      targetFriction: "",
+      strategicTheme: "",
       desiredOutcomes: [],
       dataTypes: [],
       integrations: [],
@@ -541,12 +663,19 @@ export default function UseCases() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <Brain className="w-6 h-6" style={{ color: "#02a2fd" }} />
-            AI Use Cases
+            <div
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-sm font-bold"
+              style={{ background: "linear-gradient(135deg, #001278, #02a2fd)" }}
+            >
+              4
+            </div>
+            AI Use Case Generation
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Define and configure AI-powered use cases with agentic design
-            patterns, primitives, and human-in-the-loop checkpoints.
+          <p className="text-sm text-muted-foreground mt-1 max-w-2xl leading-relaxed">
+            These {useCases.length} use cases target the highest-impact friction
+            points, with each designed to fundamentally reshape how work is
+            performed. Every use case includes mandatory human validation
+            checkpoints.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -556,7 +685,7 @@ export default function UseCases() {
         </div>
       </div>
 
-      {/* Use Case Cards */}
+      {/* Use Case Groups */}
       {useCases.length === 0 ? (
         <Card className="p-12 text-center">
           <div className="flex flex-col items-center gap-3">
@@ -580,16 +709,17 @@ export default function UseCases() {
           </div>
         </Card>
       ) : (
-        <div className="space-y-6">
-          {useCases.map((uc, index) => (
-            <UseCaseCard
-              key={uc.id}
-              useCase={uc}
-              index={index}
+        <div className="space-y-8">
+          {Object.entries(grouped).map(([themeName, items]) => (
+            <ThemeGroup
+              key={themeName}
+              themeName={themeName}
+              useCases={items}
+              allUseCases={useCases}
               frictionPoints={frictionPoints}
               strategicThemes={strategicThemes}
-              onUpdate={(updated) => updateUseCase(index, updated)}
-              onDelete={() => deleteUseCase(index)}
+              onUpdate={updateUseCase}
+              onDelete={deleteUseCase}
             />
           ))}
         </div>

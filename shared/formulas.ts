@@ -122,7 +122,43 @@ export function calculateAnnualTokenCost(
 // PRIORITY CALCULATIONS
 // -------------------------------------------------------------------------
 
+/**
+ * Value Ratio: Expected Value / Friction Annual Cost
+ * Measures ROI per friction dollar — how much value each dollar of friction generates.
+ */
+export function calculateValueRatio(
+  expectedValue: number,
+  frictionAnnualCost: number,
+): number {
+  return frictionAnnualCost > 0 ? expectedValue / frictionAnnualCost : 0;
+}
+
+/**
+ * Value Score: Normalized to 1-10 scale from the raw value ratios.
+ * Formula: 1 + ((ratio - minRatio) / (maxRatio - minRatio)) * 9
+ *
+ * When frictionPoints are not available (backward compat), falls back to
+ * the legacy formula: (expectedValue / maxExpectedValue) * 10
+ */
 export function calculateValueScore(
+  expectedValue: number,
+  frictionAnnualCost: number,
+  allRatios: number[],
+): number {
+  const rawRatio = frictionAnnualCost > 0 ? expectedValue / frictionAnnualCost : 0;
+  const minRatio = Math.min(...allRatios);
+  const maxRatio = Math.max(...allRatios);
+
+  // All ratios equal (or single use case) → midpoint
+  if (maxRatio === minRatio) return 5.5;
+
+  return 1 + ((rawRatio - minRatio) / (maxRatio - minRatio)) * 9;
+}
+
+/**
+ * Legacy fallback when friction data is unavailable.
+ */
+export function calculateValueScoreLegacy(
   expectedValue: number,
   allExpectedValues: number[],
 ): number {
