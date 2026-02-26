@@ -235,6 +235,17 @@ export function generateHTMLReport(
   });
   const totalRecovery = frictionRecoveryRows.reduce((s, r) => s + r.recoveryAmount, 0);
 
+  // Benefits breakdown by driver
+  const totalCostBenefit = benefits.reduce((s: number, b: any) => s + parseCurrencyString(b.costBenefit || "$0"), 0);
+  const totalRevenueBenefit = benefits.reduce((s: number, b: any) => s + parseCurrencyString(b.revenueBenefit || "$0"), 0);
+  const totalRiskBenefit = benefits.reduce((s: number, b: any) => s + parseCurrencyString(b.riskBenefit || "$0"), 0);
+  const totalCashFlowBenefit = benefits.reduce((s: number, b: any) => s + parseCurrencyString(b.cashFlowBenefit || "$0"), 0);
+  const totalAllBenefits = totalCostBenefit + totalRevenueBenefit + totalRiskBenefit + totalCashFlowBenefit;
+  const costPct = totalAllBenefits > 0 ? (totalCostBenefit / totalAllBenefits * 100) : 0;
+  const revPct = totalAllBenefits > 0 ? (totalRevenueBenefit / totalAllBenefits * 100) : 0;
+  const riskPct = totalAllBenefits > 0 ? (totalRiskBenefit / totalAllBenefits * 100) : 0;
+  const cfPct = totalAllBenefits > 0 ? (totalCashFlowBenefit / totalAllBenefits * 100) : 0;
+
   // SVG bubble chart data
   const VALUE_THRESHOLD = 5.5;
   const READINESS_THRESHOLD = 5.5;
@@ -395,16 +406,63 @@ export function generateHTMLReport(
     /* Footer */
     .footer { margin-top: 48px; padding: 16px 0; border-top: 1px solid #e2e8f0; font-size: 11px; color: #94a3b8; text-align: center; }
 
+    /* Use case cards */
+    .uc-card { border: 1px solid #e2e8f0; border-radius: 10px; margin-bottom: 16px; overflow: hidden; }
+    .uc-card-header { background: #f8fafc; padding: 12px 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; border-bottom: 1px solid #e2e8f0; }
+    .uc-id { font-family: 'SF Mono', monospace; font-size: 11px; color: #94a3b8; font-weight: 600; }
+    .uc-name { font-weight: 600; font-size: 14px; color: #1e293b; flex: 1; }
+    .uc-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; }
+    .uc-badge-navy { background: #001278; color: white; }
+    .uc-badge-blue { background: #02a2fd; color: white; }
+    .uc-badge-slate { background: #e2e8f0; color: #475569; }
+    .uc-card-body { padding: 14px 16px; }
+    .uc-desc { font-size: 13px; color: #475569; line-height: 1.6; margin-bottom: 10px; }
+    .uc-label { font-size: 10px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 4px; }
+    .uc-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+    .uc-chip-green { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 500; background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+    .uc-pattern-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; margin-bottom: 10px; }
+    .uc-pattern-label { font-size: 10px; color: #94a3b8; font-weight: 600; text-transform: uppercase; margin-bottom: 4px; }
+    .uc-rationale { font-size: 12px; color: #475569; line-height: 1.5; margin-top: 8px; padding-top: 8px; border-top: 1px solid #e2e8f0; }
+    .uc-hitl { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 8px 12px; font-size: 12px; color: #1e40af; display: flex; align-items: flex-start; gap: 6px; }
+    .uc-hitl-icon { font-weight: 700; }
+    .uc-theme-divider { display: flex; align-items: center; gap: 8px; margin: 20px 0 12px; }
+    .uc-theme-bar { height: 3px; width: 16px; border-radius: 2px; background: #001278; }
+    .uc-theme-name { font-size: 13px; font-weight: 600; color: #001278; }
+    .uc-theme-count { font-size: 11px; color: #94a3b8; }
+
+    /* Benefits breakdown bar */
+    .benefit-bar-container { display: flex; height: 28px; border-radius: 6px; overflow: hidden; margin: 12px 0; }
+    .benefit-bar-segment { display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; color: white; min-width: 30px; }
+    .benefit-legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px; font-size: 11px; }
+    .benefit-legend-item { display: flex; align-items: center; gap: 4px; }
+    .benefit-legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+    /* Readiness heatmap */
+    .readiness-cell { padding: 6px 8px; text-align: center; font-weight: 600; font-size: 12px; border-radius: 4px; }
+    .readiness-high { background: #dcfce7; color: #166534; }
+    .readiness-mid { background: #fef9c3; color: #854d0e; }
+    .readiness-low { background: #fee2e2; color: #991b1b; }
+
     /* Print styles */
     @media print {
-      body { font-size: 12px; }
-      .page { padding: 0 20px; }
-      .cover { min-height: auto; padding: 60px 20px; page-break-after: always; }
+      body { font-size: 11px; -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
+      .page { padding: 0 16px; max-width: 100%; }
+      .cover { min-height: auto; padding: 40px 16px; page-break-after: always; }
+      .cover h1 { font-size: 28px; }
       .toc { page-break-after: always; }
-      h2 { page-break-after: avoid; }
-      table, .cards, .workflow-compare { page-break-inside: avoid; }
+      h2 { page-break-after: avoid; page-break-before: auto; margin-top: 20px; }
+      h2 + * { page-break-before: avoid; }
+      table { page-break-inside: auto; }
+      tr { page-break-inside: avoid; page-break-after: auto; }
+      .cards, .cards-3 { break-inside: avoid; }
+      .card { break-inside: avoid; }
+      .uc-card { break-inside: avoid; }
+      .workflow-compare { break-inside: avoid; }
+      .callout { break-inside: avoid; }
+      .metric-bar { break-inside: avoid; }
       .section { page-break-before: auto; }
       .no-print { display: none; }
+      svg { max-height: 300px; }
     }
   </style>
 </head>
@@ -444,6 +502,26 @@ export function generateHTMLReport(
   </div>
 
   <div class="page">
+
+  <!-- Company Overview -->
+  <div class="cards" style="margin-bottom:24px;">
+    <div class="card">
+      <div class="card-label">Company</div>
+      <div class="card-value" style="color:#001278;font-size:18px;">${project.companyName}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Industry</div>
+      <div class="card-value" style="color:#475569;font-size:18px;">${project.industry || "N/A"}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Scenario</div>
+      <div class="card-value" style="color:#02a2fd;font-size:18px;">${scenario.name}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Use Cases Analyzed</div>
+      <div class="card-value" style="color:#36bf78;font-size:18px;">${useCases.length}</div>
+    </div>
+  </div>
 
   <!-- Section 1: Executive Summary -->
   <h2 id="executive">Executive Summary</h2>
@@ -515,12 +593,60 @@ export function generateHTMLReport(
     </tr>
   </table>
 
-  <!-- Section 5: AI Use Cases -->
+  <!-- Section 5: AI Use Cases (Card Layout) -->
   <h2 id="usecases">AI Use Cases</h2>
-  <table>
-    <tr><th>ID</th><th>Use Case</th><th>Function</th><th>AI Primitives</th><th>Agentic Pattern</th><th>Theme</th></tr>
-    ${useCases.map((u: any) => `<tr><td class="mono bold">${u.id}</td><td>${u.name}</td><td>${u.function}</td><td>${(u.aiPrimitives || []).join(", ")}</td><td>${u.agenticPattern || "&mdash;"}</td><td style="font-size:12px;color:#64748b;">${u.strategicTheme || ""}</td></tr>`).join("")}
-  </table>
+  ${(() => {
+    // Group by strategic theme if available
+    const themeGroups = new Map<string, any[]>();
+    useCases.forEach((u: any) => {
+      const theme = u.strategicTheme || "General";
+      if (!themeGroups.has(theme)) themeGroups.set(theme, []);
+      themeGroups.get(theme)!.push(u);
+    });
+    const singleAgentPatterns = ["reflection", "tool_use", "planning", "react", "prompt_chaining"];
+    const getPatternClass = (p: string) => singleAgentPatterns.some(s => (p || "").toLowerCase().includes(s)) ? "uc-badge-navy" : "uc-badge-blue";
+
+    let html = "";
+    for (const [theme, ucs] of Array.from(themeGroups.entries())) {
+      if (themeGroups.size > 1) {
+        html += `<div class="uc-theme-divider"><div class="uc-theme-bar"></div><span class="uc-theme-name">${theme}</span><span class="uc-theme-count">(${ucs.length} use cases)</span></div>`;
+      }
+      for (const u of ucs) {
+        const primitives = Array.isArray(u.aiPrimitives) ? u.aiPrimitives : String(u.aiPrimitives || "").split(",").map((s: string) => s.trim()).filter(Boolean);
+        html += `
+        <div class="uc-card">
+          <div class="uc-card-header">
+            <span class="uc-id">${u.id}</span>
+            <span class="uc-name">${u.name}</span>
+            ${u.agenticPattern ? `<span class="uc-badge ${getPatternClass(u.agenticPattern)}">${u.agenticPattern}</span>` : ""}
+            ${u.function ? `<span class="uc-badge uc-badge-slate">${u.function}</span>` : ""}
+          </div>
+          <div class="uc-card-body">
+            ${u.description ? `<div class="uc-desc">${u.description}</div>` : ""}
+            ${u.targetFriction ? `<div style="margin-bottom:8px;"><span class="uc-label">Target Friction:</span> <span style="font-size:13px;color:#475569;">${u.targetFriction}</span></div>` : ""}
+            ${primitives.length > 0 ? `
+              <div class="uc-label">AI Primitives</div>
+              <div class="uc-chips">${primitives.map((p: string) => `<span class="uc-chip-green">${p}</span>`).join("")}</div>
+            ` : ""}
+            ${u.agenticPattern ? `
+              <div class="uc-pattern-box">
+                <div class="uc-pattern-label">Agentic Pattern</div>
+                <span class="uc-badge ${getPatternClass(u.agenticPattern)}">${u.agenticPattern}</span>
+                ${u.patternRationale ? `<div class="uc-rationale">${u.patternRationale}</div>` : ""}
+              </div>
+            ` : ""}
+            ${u.humanInTheLoop || u.hitlCheckpoint ? `
+              <div class="uc-hitl">
+                <span class="uc-hitl-icon">HITL:</span>
+                <span>${u.humanInTheLoop || u.hitlCheckpoint}</span>
+              </div>
+            ` : ""}
+          </div>
+        </div>`;
+      }
+    }
+    return html;
+  })()}
 
   <!-- Section 6: Benefits Quantification -->
   <h2 id="benefits">Benefits Quantification</h2>
@@ -528,6 +654,22 @@ export function generateHTMLReport(
     <tr><th>Use Case</th><th class="right">Cost</th><th class="right">Revenue</th><th class="right">Risk</th><th class="right">Cash Flow</th><th class="right">Total Annual</th><th class="right">Expected Value</th></tr>
     ${benefits.map((b: any) => `<tr><td>${b.useCaseName}</td><td class="right mono">${b.costBenefit}</td><td class="right mono">${b.revenueBenefit}</td><td class="right mono">${b.riskBenefit}</td><td class="right mono">${b.cashFlowBenefit}</td><td class="right mono bold">${b.totalAnnualValue}</td><td class="right mono bold" style="color:#7c3aed;">${b.expectedValue}</td></tr>`).join("")}
   </table>
+
+  ${totalAllBenefits > 0 ? `
+  <h3>Benefits Breakdown by Driver</h3>
+  <div class="benefit-bar-container">
+    ${costPct > 0 ? `<div class="benefit-bar-segment" style="width:${costPct}%;background:#001278;">${costPct >= 8 ? formatCurrency(totalCostBenefit) : ""}</div>` : ""}
+    ${revPct > 0 ? `<div class="benefit-bar-segment" style="width:${revPct}%;background:#02a2fd;">${revPct >= 8 ? formatCurrency(totalRevenueBenefit) : ""}</div>` : ""}
+    ${riskPct > 0 ? `<div class="benefit-bar-segment" style="width:${riskPct}%;background:#f59e0b;">${riskPct >= 8 ? formatCurrency(totalRiskBenefit) : ""}</div>` : ""}
+    ${cfPct > 0 ? `<div class="benefit-bar-segment" style="width:${cfPct}%;background:#36bf78;">${cfPct >= 8 ? formatCurrency(totalCashFlowBenefit) : ""}</div>` : ""}
+  </div>
+  <div class="benefit-legend">
+    <div class="benefit-legend-item"><span class="benefit-legend-dot" style="background:#001278;"></span> Cost Savings (${costPct.toFixed(1)}%)</div>
+    <div class="benefit-legend-item"><span class="benefit-legend-dot" style="background:#02a2fd;"></span> Revenue (${revPct.toFixed(1)}%)</div>
+    <div class="benefit-legend-item"><span class="benefit-legend-dot" style="background:#f59e0b;"></span> Risk Mitigation (${riskPct.toFixed(1)}%)</div>
+    <div class="benefit-legend-item"><span class="benefit-legend-dot" style="background:#36bf78;"></span> Cash Flow (${cfPct.toFixed(1)}%)</div>
+  </div>
+  ` : ""}
 
   <!-- Section 7: Value-Readiness Matrix -->
   <h2 id="matrix">Value-Readiness Matrix</h2>
@@ -672,7 +814,10 @@ export function generateHTMLReport(
   <h2 id="readiness">Readiness &amp; Token Modeling</h2>
   <table>
     <tr><th>Use Case</th><th class="center">Data</th><th class="center">Tech</th><th class="center">Org</th><th class="center">Gov</th><th class="center">Readiness</th><th class="center">TTV (mo)</th><th class="right">Monthly Tokens</th><th class="right">Annual Cost</th></tr>
-    ${readiness.map((r: any) => `<tr><td>${r.useCaseName}</td><td class="center mono">${r.dataAvailability}</td><td class="center mono">${r.technicalInfrastructure}</td><td class="center mono">${r.organizationalCapacity}</td><td class="center mono">${r.governance}</td><td class="center mono bold">${typeof r.readinessScore === "number" ? r.readinessScore.toFixed(1) : r.readinessScore}</td><td class="center mono">${r.timeToValue}</td><td class="right mono">${(r.monthlyTokens || 0).toLocaleString()}</td><td class="right mono">${r.annualTokenCost || "&mdash;"}</td></tr>`).join("")}
+    ${readiness.map((r: any) => {
+      const rc = (v: number) => v >= 7 ? "readiness-high" : v >= 4 ? "readiness-mid" : "readiness-low";
+      return `<tr><td>${r.useCaseName}</td><td class="center mono readiness-cell ${rc(r.dataAvailability || 0)}">${r.dataAvailability}</td><td class="center mono readiness-cell ${rc(r.technicalInfrastructure || 0)}">${r.technicalInfrastructure}</td><td class="center mono readiness-cell ${rc(r.organizationalCapacity || 0)}">${r.organizationalCapacity}</td><td class="center mono readiness-cell ${rc(r.governance || 0)}">${r.governance}</td><td class="center mono bold">${typeof r.readinessScore === "number" ? r.readinessScore.toFixed(1) : r.readinessScore}</td><td class="center mono">${r.timeToValue}</td><td class="right mono">${(r.monthlyTokens || 0).toLocaleString()}</td><td class="right mono">${r.annualTokenCost || "&mdash;"}</td></tr>`;
+    }).join("")}
   </table>
   ` : ""}
 

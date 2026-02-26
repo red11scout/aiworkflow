@@ -41,6 +41,16 @@ import {
   Sparkles,
   ShieldAlert,
   Target,
+  Building2,
+  Compass,
+  BarChart3,
+  Table2,
+  ArrowUpRight,
+  ArrowDownRight,
+  Minus,
+  GitCompareArrows,
+  Clock,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -87,6 +97,9 @@ export default function Dashboard() {
   const readiness = (activeScenario?.readiness as any[]) || [];
   const frictionItems = (activeScenario?.frictionPoints as any[]) || [];
   const benefits = (activeScenario?.benefits as any[]) || [];
+  const strategicThemes = (activeScenario?.strategicThemes as any[]) || [];
+  const businessFunctions = (activeScenario?.businessFunctions as any[]) || [];
+  const workflowMaps = (activeScenario?.workflowMaps as any[]) || [];
 
   const getUseCaseName = useCallback(
     (useCaseId: string) => {
@@ -120,11 +133,31 @@ export default function Dashboard() {
   const topUseCases = useMemo(() => {
     return [...priorities]
       .sort((a: any, b: any) => (b.priorityScore || 0) - (a.priorityScore || 0))
-      .slice(0, 10);
+      .slice(0, 12);
   }, [priorities]);
 
   // Multi-year projection
   const projection = dashboard?.projection as any;
+
+  // Benefits breakdown by driver
+  const benefitsByDriver = useMemo(() => {
+    const totals = { cost: 0, revenue: 0, risk: 0, cashFlow: 0 };
+    benefits.forEach((b: any) => {
+      totals.cost += parseCurrencyString(b.costBenefit || "$0");
+      totals.revenue += parseCurrencyString(b.revenueBenefit || "$0");
+      totals.risk += parseCurrencyString(b.riskBenefit || "$0");
+      totals.cashFlow += parseCurrencyString(b.cashFlowBenefit || "$0");
+    });
+    const total = totals.cost + totals.revenue + totals.risk + totals.cashFlow;
+    return {
+      ...totals,
+      total,
+      costPct: total > 0 ? (totals.cost / total) * 100 : 0,
+      revenuePct: total > 0 ? (totals.revenue / total) * 100 : 0,
+      riskPct: total > 0 ? (totals.risk / total) * 100 : 0,
+      cashFlowPct: total > 0 ? (totals.cashFlow / total) * 100 : 0,
+    };
+  }, [benefits]);
 
   // Toggle expanded row
   const toggleRow = useCallback((id: string) => {
@@ -416,6 +449,40 @@ export default function Dashboard() {
         </Button>
       </div>
 
+      {/* Company Overview */}
+      {(project as any) && (
+        <Card className="mb-6">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Building2 className="w-5 h-5" style={{ color: "#001278" }} />
+              Company Overview
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Company Name</p>
+                <p className="text-lg font-semibold text-foreground">{(project as any)?.companyName || "N/A"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Industry</p>
+                <p className="text-lg font-semibold text-foreground">{(project as any)?.industry || "Not specified"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Active Scenario</p>
+                <p className="text-lg font-semibold text-foreground">{activeScenario?.name || "Default"}</p>
+              </div>
+            </div>
+            {(project as any)?.description && (
+              <div className="mt-4 pt-4 border-t border-border">
+                <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Description</p>
+                <p className="text-sm text-foreground/80">{(project as any).description}</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Key Metrics Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <Card>
@@ -479,6 +546,87 @@ export default function Dashboard() {
         </Card>
       </div>
 
+      {/* Benefits Breakdown by Driver */}
+      {benefitsByDriver.total > 0 && (
+        <Card className="mb-6">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <BarChart3 className="w-5 h-5" style={{ color: "#02a2fd" }} />
+              Benefits Breakdown by Driver
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {/* Stacked bar */}
+              <div className="w-full h-10 rounded-lg overflow-hidden flex">
+                {benefitsByDriver.costPct > 0 && (
+                  <div
+                    className="h-full flex items-center justify-center text-white text-xs font-medium transition-all"
+                    style={{ width: `${benefitsByDriver.costPct}%`, backgroundColor: "#02a2fd" }}
+                    title={`Cost Savings: ${formatCurrency(benefitsByDriver.cost)}`}
+                  >
+                    {benefitsByDriver.costPct >= 8 ? `${benefitsByDriver.costPct.toFixed(0)}%` : ""}
+                  </div>
+                )}
+                {benefitsByDriver.revenuePct > 0 && (
+                  <div
+                    className="h-full flex items-center justify-center text-white text-xs font-medium transition-all"
+                    style={{ width: `${benefitsByDriver.revenuePct}%`, backgroundColor: "#36bf78" }}
+                    title={`Revenue Uplift: ${formatCurrency(benefitsByDriver.revenue)}`}
+                  >
+                    {benefitsByDriver.revenuePct >= 8 ? `${benefitsByDriver.revenuePct.toFixed(0)}%` : ""}
+                  </div>
+                )}
+                {benefitsByDriver.riskPct > 0 && (
+                  <div
+                    className="h-full flex items-center justify-center text-white text-xs font-medium transition-all"
+                    style={{ width: `${benefitsByDriver.riskPct}%`, backgroundColor: "#f59e0b" }}
+                    title={`Risk Mitigation: ${formatCurrency(benefitsByDriver.risk)}`}
+                  >
+                    {benefitsByDriver.riskPct >= 8 ? `${benefitsByDriver.riskPct.toFixed(0)}%` : ""}
+                  </div>
+                )}
+                {benefitsByDriver.cashFlowPct > 0 && (
+                  <div
+                    className="h-full flex items-center justify-center text-white text-xs font-medium transition-all"
+                    style={{ width: `${benefitsByDriver.cashFlowPct}%`, backgroundColor: "#8b5cf6" }}
+                    title={`Cash Flow: ${formatCurrency(benefitsByDriver.cashFlow)}`}
+                  >
+                    {benefitsByDriver.cashFlowPct >= 8 ? `${benefitsByDriver.cashFlowPct.toFixed(0)}%` : ""}
+                  </div>
+                )}
+              </div>
+
+              {/* Legend + values */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {[
+                  { label: "Cost Savings", value: benefitsByDriver.cost, pct: benefitsByDriver.costPct, color: "#02a2fd" },
+                  { label: "Revenue Uplift", value: benefitsByDriver.revenue, pct: benefitsByDriver.revenuePct, color: "#36bf78" },
+                  { label: "Risk Mitigation", value: benefitsByDriver.risk, pct: benefitsByDriver.riskPct, color: "#f59e0b" },
+                  { label: "Cash Flow", value: benefitsByDriver.cashFlow, pct: benefitsByDriver.cashFlowPct, color: "#8b5cf6" },
+                ].map((d) => (
+                  <div key={d.label} className="flex items-center gap-3">
+                    <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: d.color }} />
+                    <div>
+                      <p className="text-xs text-muted-foreground">{d.label}</p>
+                      <p className="text-sm font-bold font-mono" style={{ color: d.color }}>
+                        {formatCurrency(d.value)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">{d.pct.toFixed(1)}% of total</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="text-right">
+                <span className="text-xs text-muted-foreground">Total: </span>
+                <span className="text-sm font-bold font-mono text-foreground">{formatCurrency(benefitsByDriver.total)}</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Executive Summary */}
       <Card className="mb-6">
         <CardHeader className="pb-3">
@@ -497,6 +645,119 @@ export default function Dashboard() {
           </p>
         </CardContent>
       </Card>
+
+      {/* Strategic Themes */}
+      {strategicThemes.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Compass className="w-5 h-5" style={{ color: "#001278" }} />
+              Strategic Themes
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {strategicThemes.map((theme: any, idx: number) => {
+                const borderColors = ["#001278", "#02a2fd", "#36bf78", "#f59e0b", "#8b5cf6", "#ef4444"];
+                const borderColor = borderColors[idx % borderColors.length];
+                return (
+                  <div
+                    key={theme.id}
+                    className="p-4 rounded-lg border border-border/50 bg-card"
+                    style={{ borderLeft: `4px solid ${borderColor}` }}
+                  >
+                    <h4 className="font-semibold text-foreground mb-3">{theme.name}</h4>
+                    <div className="space-y-2 text-sm">
+                      <div>
+                        <p className="text-xs text-muted-foreground uppercase tracking-wide">Current State</p>
+                        <p className="text-foreground/80">{theme.currentState || "N/A"}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground uppercase tracking-wide">Target State</p>
+                        <p className="text-foreground/80">{theme.targetState || "N/A"}</p>
+                      </div>
+                      <div className="pt-1">
+                        <Badge
+                          style={{
+                            backgroundColor: borderColor + "15",
+                            color: borderColor,
+                            border: `1px solid ${borderColor}40`,
+                          }}
+                        >
+                          {theme.primaryDriverImpact || "N/A"}
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Business Functions & KPIs */}
+      {businessFunctions.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Table2 className="w-5 h-5" style={{ color: "#02a2fd" }} />
+              Business Functions & KPIs
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left">
+                    <th className="pb-3 font-medium text-muted-foreground">Function</th>
+                    <th className="pb-3 font-medium text-muted-foreground">KPI</th>
+                    <th className="pb-3 font-medium text-muted-foreground text-center">Baseline</th>
+                    <th className="pb-3 font-medium text-muted-foreground text-center">Target</th>
+                    <th className="pb-3 font-medium text-muted-foreground text-center">Direction</th>
+                    <th className="pb-3 font-medium text-muted-foreground">Timeframe</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {businessFunctions.map((fn: any) => {
+                    const dirIcon =
+                      fn.direction?.toLowerCase() === "increase" || fn.direction?.toLowerCase() === "up"
+                        ? { icon: ArrowUpRight, color: "#36bf78" }
+                        : fn.direction?.toLowerCase() === "decrease" || fn.direction?.toLowerCase() === "down"
+                          ? { icon: ArrowDownRight, color: "#ef4444" }
+                          : { icon: Minus, color: "#94a3b8" };
+                    const DirIcon = dirIcon.icon;
+                    return (
+                      <tr key={fn.id} className="hover:bg-muted/50">
+                        <td className="py-3">
+                          <div>
+                            <p className="font-medium text-foreground">{fn.function}</p>
+                            {fn.subFunction && (
+                              <p className="text-xs text-muted-foreground">{fn.subFunction}</p>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-3 text-foreground">{fn.kpiName}</td>
+                        <td className="py-3 text-center font-mono text-foreground">{fn.baselineValue}</td>
+                        <td className="py-3 text-center font-mono font-semibold" style={{ color: "#02a2fd" }}>
+                          {fn.targetValue}
+                        </td>
+                        <td className="py-3 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            <DirIcon className="w-4 h-4" style={{ color: dirIcon.color }} />
+                            <span className="text-xs" style={{ color: dirIcon.color }}>{fn.direction}</span>
+                          </div>
+                        </td>
+                        <td className="py-3 text-muted-foreground">{fn.timeframe}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Top Use Cases Ranked Table */}
       {topUseCases.length > 0 && (
@@ -1068,6 +1329,211 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </TooltipProvider>
+      )}
+
+      {/* Readiness Heatmap */}
+      {readiness.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Gauge className="w-5 h-5" style={{ color: "#02a2fd" }} />
+              Readiness Heatmap
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left">
+                    <th className="pb-3 font-medium text-muted-foreground">Use Case</th>
+                    <th className="pb-3 font-medium text-muted-foreground text-center">Data Availability</th>
+                    <th className="pb-3 font-medium text-muted-foreground text-center">Technical Infrastructure</th>
+                    <th className="pb-3 font-medium text-muted-foreground text-center">Organizational Capacity</th>
+                    <th className="pb-3 font-medium text-muted-foreground text-center">Governance</th>
+                    <th className="pb-3 font-medium text-muted-foreground text-center">Overall</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {readiness.map((r: any) => {
+                    const getScoreColor = (score: number) =>
+                      score >= 7 ? "#36bf78" : score >= 4 ? "#f59e0b" : "#ef4444";
+                    const getScoreBg = (score: number) =>
+                      score >= 7 ? "#36bf7815" : score >= 4 ? "#f59e0b15" : "#ef444415";
+                    return (
+                      <tr key={r.id} className="hover:bg-muted/50">
+                        <td className="py-3">
+                          <p className="font-medium text-foreground">{r.useCaseName || getUseCaseName(r.useCaseId)}</p>
+                        </td>
+                        {[
+                          r.dataAvailability,
+                          r.technicalInfrastructure,
+                          r.organizationalCapacity,
+                          r.governance,
+                        ].map((score: number, idx: number) => (
+                          <td key={idx} className="py-3 text-center">
+                            <span
+                              className="inline-flex items-center justify-center w-10 h-10 rounded-lg font-bold font-mono text-sm"
+                              style={{
+                                backgroundColor: getScoreBg(score),
+                                color: getScoreColor(score),
+                                border: `1px solid ${getScoreColor(score)}30`,
+                              }}
+                            >
+                              {score}
+                            </span>
+                          </td>
+                        ))}
+                        <td className="py-3 text-center">
+                          <span
+                            className="inline-flex items-center justify-center w-10 h-10 rounded-lg font-bold font-mono text-sm"
+                            style={{
+                              backgroundColor: getScoreBg(r.readinessScore),
+                              color: getScoreColor(r.readinessScore),
+                              border: `2px solid ${getScoreColor(r.readinessScore)}50`,
+                            }}
+                          >
+                            {r.readinessScore?.toFixed(1)}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {/* Heatmap legend */}
+            <div className="flex items-center gap-4 text-xs text-muted-foreground mt-4 pt-3 border-t border-border/50">
+              <span className="font-medium">Score:</span>
+              <span className="flex items-center gap-1">
+                <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: "#36bf78" }} />
+                High (7-10)
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: "#f59e0b" }} />
+                Medium (4-6)
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: "#ef4444" }} />
+                Low (1-3)
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Workflow Comparisons */}
+      {workflowMaps.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <GitCompareArrows className="w-5 h-5" style={{ color: "#001278" }} />
+              Workflow Comparisons
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-6">
+              {workflowMaps.map((wm: any) => {
+                const m = wm.comparisonMetrics;
+                if (!m) return null;
+                const metricCards = [
+                  {
+                    label: "Time Reduction",
+                    before: m.timeReduction?.before,
+                    after: m.timeReduction?.after,
+                    improvement: m.timeReduction?.improvement,
+                    icon: Clock,
+                    color: "#02a2fd",
+                  },
+                  {
+                    label: "Cost Reduction",
+                    before: m.costReduction?.before,
+                    after: m.costReduction?.after,
+                    improvement: m.costReduction?.improvement,
+                    icon: DollarSign,
+                    color: "#36bf78",
+                  },
+                  {
+                    label: "Quality Improvement",
+                    before: m.qualityImprovement?.before,
+                    after: m.qualityImprovement?.after,
+                    improvement: m.qualityImprovement?.improvement,
+                    icon: Target,
+                    color: "#f59e0b",
+                  },
+                  {
+                    label: "Throughput Increase",
+                    before: m.throughputIncrease?.before,
+                    after: m.throughputIncrease?.after,
+                    improvement: m.throughputIncrease?.improvement,
+                    icon: Zap,
+                    color: "#8b5cf6",
+                  },
+                ];
+
+                return (
+                  <div key={wm.useCaseId} className="p-4 rounded-lg border border-border/50 bg-card">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Badge
+                        variant="outline"
+                        className="font-mono text-xs"
+                        style={{ borderColor: "#02a2fd40", color: "#02a2fd" }}
+                      >
+                        {wm.useCaseId}
+                      </Badge>
+                      <h4 className="font-semibold text-foreground">{wm.useCaseName}</h4>
+                      {wm.agenticPattern && (
+                        <Badge
+                          style={{
+                            backgroundColor: "#00127815",
+                            color: "#001278",
+                            border: "1px solid #00127830",
+                          }}
+                        >
+                          {wm.agenticPattern}
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      {metricCards.map((mc) => {
+                        const MetricIcon = mc.icon;
+                        return (
+                          <div
+                            key={mc.label}
+                            className="p-3 rounded-lg bg-muted/40 border border-border/30"
+                          >
+                            <div className="flex items-center gap-1.5 mb-2">
+                              <MetricIcon className="w-3.5 h-3.5" style={{ color: mc.color }} />
+                              <p className="text-xs font-medium text-muted-foreground">{mc.label}</p>
+                            </div>
+                            <div className="space-y-1 text-sm">
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Before:</span>
+                                <span className="font-mono text-foreground">{mc.before || "N/A"}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">After:</span>
+                                <span className="font-mono font-semibold" style={{ color: mc.color }}>
+                                  {mc.after || "N/A"}
+                                </span>
+                              </div>
+                              {mc.improvement && (
+                                <div className="pt-1 border-t border-border/30">
+                                  <p className="text-xs font-bold text-center" style={{ color: mc.color }}>
+                                    {mc.improvement}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Export Section */}

@@ -658,7 +658,25 @@ IMPORTANT: Ground the metrics in the friction point data provided. The cost redu
     if (!project || !scenario)
       return res.status(404).json({ message: "Data not found" });
 
-    res.json({ project, scenario });
+    // Flatten scenario data into a single report object for the SharedReport page
+    res.json({
+      companyName: project.companyName,
+      industry: project.industry,
+      generatedAt: scenario.updatedAt || scenario.createdAt,
+      strategicThemes: scenario.strategicThemes || [],
+      businessFunctions: scenario.businessFunctions || [],
+      frictionMapping: scenario.frictionPoints || [],
+      useCases: scenario.useCases || [],
+      benefits: scenario.benefits || [],
+      readiness: scenario.readiness || [],
+      priorities: scenario.priorities || [],
+      workflowMaps: scenario.workflowMaps || [],
+      dashboard: scenario.executiveDashboard || null,
+      scenarioAnalysis: scenario.scenarioAnalysis || null,
+      multiYear: scenario.multiYear || null,
+      frictionRecovery: scenario.frictionRecovery || null,
+      executiveSummary: (scenario.executiveDashboard as any)?.executiveSummary || scenario.executiveSummary || null,
+    });
   });
 
   // HTML report generation
