@@ -79,10 +79,14 @@ export async function createApp() {
   return { app, httpServer };
 }
 
-(async () => {
-  const { httpServer } = await createApp();
-  const port = parseInt(process.env.PORT || "5000", 10);
-  httpServer.listen(port, "0.0.0.0", () => {
-    log(`AI Workflow serving on port ${port}`);
-  });
-})();
+// On Vercel, the serverless handler (api/index.ts) imports createApp directly.
+// Only start the HTTP listener for local dev / non-Vercel production.
+if (!process.env.VERCEL) {
+  (async () => {
+    const { httpServer } = await createApp();
+    const port = parseInt(process.env.PORT || "5000", 10);
+    httpServer.listen(port, "0.0.0.0", () => {
+      log(`AI Workflow serving on port ${port}`);
+    });
+  })();
+}

@@ -12,7 +12,7 @@ import {
 } from "./calculation-engine";
 import { SCENARIO_MULTIPLIERS } from "@shared/formulas";
 import { nanoid } from "nanoid";
-import type { WorkflowMap } from "@shared/types";
+import type { WorkflowMap, InteractiveWorkflowNode, HITLCheckpoint } from "@shared/types";
 
 export async function registerRoutes(server: Server, app: Express) {
   // =====================================================================
@@ -471,7 +471,7 @@ export async function registerRoutes(server: Server, app: Express) {
 
   // AI workflow generation — batch generates workflows for ALL use cases in a scenario
   app.post("/api/ai/generate-workflow", async (req, res) => {
-    const { scenarioId } = req.body;
+    const { scenarioId, useCaseId, currentStateContext } = req.body;
 
     if (!scenarioId) {
       return res.status(400).json({ message: "Missing scenarioId" });
@@ -489,11 +489,16 @@ export async function registerRoutes(server: Server, app: Express) {
       });
     }
 
-    const useCases = (scenario.useCases as any[]) || [];
+    const allUseCases = (scenario.useCases as any[]) || [];
     const frictionPoints = (scenario.frictionPoints as any[]) || [];
 
+    // If useCaseId is provided, only regenerate that one use case
+    const useCases = useCaseId
+      ? allUseCases.filter((uc: any) => uc.id === useCaseId)
+      : allUseCases;
+
     if (useCases.length === 0) {
-      return res.status(400).json({ message: "No use cases in scenario" });
+      return res.status(400).json({ message: "No use cases to generate" });
     }
 
     try {
@@ -507,19 +512,48 @@ export async function registerRoutes(server: Server, app: Express) {
           (fp: any) => fp.frictionPoint === uc.targetFriction,
         );
 
+        // If user has modified the current state, include it as context
+        const currentStateSection = currentStateContext
+          ? `
+USER-DEFINED CURRENT STATE (use as baseline — the user has already mapped these steps):
+${JSON.stringify(currentStateContext, null, 2)}
+
+Generate the target state that optimizes this specific current-state workflow.`
+          : `
+Generate BOTH current state (5-8 steps showing the manual/legacy process) and target state.`;
+
         const response = await client.messages.create({
           model: "claude-sonnet-4-5-20250929",
-          max_tokens: 4096,
+          max_tokens: 6144,
           system: `You are an expert AI workflow architect specializing in enterprise process transformation. Generate detailed workflow visualizations comparing current manual processes with AI-powered alternatives.
 
 CRITICAL REQUIREMENTS:
-1. Current State: Generate 5-8 detailed steps showing the manual/legacy process with realistic durations
-2. Target State: Generate 5-8 steps showing the AI-enhanced process
-3. EVERY target workflow MUST have at least ONE Human-in-the-Loop checkpoint
-4. Current state MUST identify bottlenecks (mark at least 1-2 steps as isBottleneck: true) and pain points
+1. Current State: 5-8 detailed steps showing the manual/legacy process with realistic durations, bottlenecks, and pain points
+2. Target State: 5-8 steps showing the AI-enhanced process
+3. EVERY target workflow MUST have at least ONE Human-in-the-Loop (HITL) checkpoint
+4. Current state MUST identify bottlenecks (mark at least 1-2 steps as isBottleneck: true)
 5. All durations must be realistic estimates grounded in the specific business function
 6. Comparison metrics must show meaningful, realistic improvements
-7. Return ONLY valid JSON — no markdown, no code blocks, no explanatory text`,
+7. Return ONLY valid JSON — no markdown, no code blocks, no explanatory text
+
+EPOCH FRAMEWORK — Categorize every HITL checkpoint using one of these categories:
+- "ethical": Decisions with moral weight (bias mitigation, fairness, legal judgments)
+- "political": High-stakes negotiations, stakeholder or regulatory sensitivity
+- "operational": Edge cases, circuit breakers, domain expertise decisions
+- "creative": Original strategy, brand voice, novel innovation
+- "human": Tasks demanding empathy, trust, or personal connection
+
+FRICTION TYPES — Tag current-state bottleneck steps with one of:
+- "process": Manual steps, handoffs, redundant workflows
+- "data": Quality issues, silos, availability gaps
+- "technology": Legacy systems, integration failures
+- "knowledge": Expertise gaps, institutional memory loss
+
+AUTOMATION LEVELS for target-state steps:
+- "full": Fully automated by AI, no human involvement
+- "assisted": AI does the work, human reviews output
+- "supervised": Human does the work with AI assistance
+- "manual": No AI involvement (pure human step)`,
           messages: [
             {
               role: "user",
@@ -536,17 +570,60 @@ STRATEGIC THEME: ${uc.strategicTheme || "N/A"}
 AI PRIMITIVES: ${(uc.aiPrimitives || []).join(", ")}
 AGENTIC PATTERN: ${uc.agenticPattern || "Not specified"}
 PATTERN RATIONALE: ${uc.patternRationale || "Not specified"}
+HITL CHECKPOINT: ${uc.hitlCheckpoint || "Not specified"}
 DESIRED OUTCOMES: ${(uc.desiredOutcomes || []).join("; ") || "N/A"}
 DATA TYPES: ${(uc.dataTypes || []).join(", ") || "N/A"}
 INTEGRATIONS: ${(uc.integrations || []).join(", ") || "N/A"}
+${currentStateSection}
 
 Return JSON with this EXACT structure:
 {
   "currentState": [
-    {"id": "cs-1", "stepNumber": 1, "name": "Step name", "description": "Detailed description of what happens", "actorType": "human", "actorName": "Role title", "duration": "2 hours", "systems": ["System name"], "isBottleneck": true, "isDecisionPoint": false, "painPoints": ["Pain point description"]}
+    {
+      "id": "cs-1", "stepNumber": 1, "name": "Step name",
+      "description": "Detailed description",
+      "actorType": "human", "actorName": "Role title",
+      "duration": "2 hours", "systems": ["System name"],
+      "isBottleneck": true, "isDecisionPoint": false,
+      "painPoints": ["Pain point description"],
+      "frictionType": "process",
+      "employeeCount": 3, "avgHourlyCost": 75,
+      "hoursPerTask": 2, "tasksPerMonth": 100
+    }
   ],
   "targetState": [
-    {"id": "ts-1", "stepNumber": 1, "name": "Step name", "description": "Detailed description of what happens", "actorType": "ai_agent", "actorName": "AI Agent name", "duration": "5 minutes", "systems": ["System name"], "isBottleneck": false, "isDecisionPoint": false, "painPoints": [], "isAIEnabled": true, "isHumanInTheLoop": false, "aiCapabilities": ["NLP", "Pattern Recognition"], "automationLevel": "full"}
+    {
+      "id": "ts-1", "stepNumber": 1, "name": "Step name",
+      "description": "Detailed description",
+      "actorType": "ai_agent", "actorName": "AI Agent name",
+      "duration": "5 minutes", "systems": ["System name"],
+      "isBottleneck": false, "isDecisionPoint": false,
+      "painPoints": [],
+      "isAIEnabled": true, "isHumanInTheLoop": false,
+      "aiCapabilities": ["NLP", "Pattern Recognition"],
+      "automationLevel": "full",
+      "employeeCount": 1, "avgHourlyCost": 0,
+      "hoursPerTask": 0.08, "tasksPerMonth": 100
+    },
+    {
+      "id": "ts-hitl-1", "stepNumber": 3, "name": "Review & Approve Output",
+      "description": "Human reviewer validates AI output before proceeding",
+      "actorType": "human", "actorName": "Senior Analyst",
+      "duration": "15 minutes", "systems": ["Review Dashboard"],
+      "isBottleneck": false, "isDecisionPoint": true,
+      "painPoints": [],
+      "isAIEnabled": false, "isHumanInTheLoop": true,
+      "aiCapabilities": [],
+      "automationLevel": "manual",
+      "hitlCheckpoint": {
+        "id": "hitl-1",
+        "epochCategory": "operational",
+        "description": "Quality gate: verify AI output accuracy before downstream consumption",
+        "approverRole": "Senior Analyst",
+        "isRequired": true,
+        "estimatedMinutes": 15
+      }
+    }
   ],
   "comparisonMetrics": {
     "timeReduction": {"before": "45 days", "after": "7 days", "improvement": "84%"},
@@ -556,7 +633,11 @@ Return JSON with this EXACT structure:
   }
 }
 
-IMPORTANT: Ground the metrics in the friction point data provided. The cost reduction "before" should align with the friction annual cost. The time reduction should reflect the friction annual hours. Make improvements realistic and achievable.`,
+IMPORTANT:
+- Ground metrics in the friction point data. Cost "before" should align with friction annual cost.
+- Include employeeCount, avgHourlyCost, hoursPerTask, tasksPerMonth on EVERY node for live cost calculations.
+- At least 1 target-state node MUST have isHumanInTheLoop: true with a hitlCheckpoint object.
+- Tag bottleneck current-state nodes with a frictionType.`,
             },
           ],
         });
@@ -565,29 +646,41 @@ IMPORTANT: Ground the metrics in the friction point data provided. The cost redu
           response.content[0].type === "text" ? response.content[0].text : "";
         const jsonMatch = text.match(/\{[\s\S]*\}/);
 
+        const emptyMetrics = {
+          timeReduction: { before: "--", after: "--", improvement: "--" },
+          costReduction: { before: "--", after: "--", improvement: "--" },
+          qualityImprovement: { before: "--", after: "--", improvement: "--" },
+          throughputIncrease: { before: "--", after: "--", improvement: "--" },
+        };
+
         if (jsonMatch) {
           try {
             const workflow = JSON.parse(jsonMatch[0]);
+
+            // Auto-assign dagre positions for React Flow canvas
+            const currentNodes = (workflow.currentState || []).map((node: any, i: number) => ({
+              ...node,
+              position: { x: 250, y: i * 150 },
+            }));
+            const targetNodes = (workflow.targetState || []).map((node: any, i: number) => ({
+              ...node,
+              position: { x: 250, y: i * 150 },
+            }));
+
             workflowMaps.push({
               useCaseId: uc.id,
               useCaseName: uc.name,
               agenticPattern: uc.agenticPattern || "",
               patternRationale: uc.patternRationale || "",
-              currentState: workflow.currentState || [],
-              targetState: workflow.targetState || [],
-              comparisonMetrics: workflow.comparisonMetrics || {
-                timeReduction: { before: "--", after: "--", improvement: "--" },
-                costReduction: { before: "--", after: "--", improvement: "--" },
-                qualityImprovement: { before: "--", after: "--", improvement: "--" },
-                throughputIncrease: { before: "--", after: "--", improvement: "--" },
-              },
+              currentState: currentNodes,
+              targetState: targetNodes,
+              comparisonMetrics: workflow.comparisonMetrics || emptyMetrics,
               desiredOutcomes: uc.desiredOutcomes || [],
               dataTypes: uc.dataTypes || [],
               integrations: uc.integrations || [],
             });
           } catch (parseErr) {
             console.error(`Failed to parse workflow for ${uc.id}:`, parseErr);
-            // Still add an empty workflow entry so the use case shows up
             workflowMaps.push({
               useCaseId: uc.id,
               useCaseName: uc.name,
@@ -595,12 +688,7 @@ IMPORTANT: Ground the metrics in the friction point data provided. The cost redu
               patternRationale: uc.patternRationale || "",
               currentState: [],
               targetState: [],
-              comparisonMetrics: {
-                timeReduction: { before: "--", after: "--", improvement: "--" },
-                costReduction: { before: "--", after: "--", improvement: "--" },
-                qualityImprovement: { before: "--", after: "--", improvement: "--" },
-                throughputIncrease: { before: "--", after: "--", improvement: "--" },
-              },
+              comparisonMetrics: emptyMetrics,
               desiredOutcomes: uc.desiredOutcomes || [],
               dataTypes: uc.dataTypes || [],
               integrations: uc.integrations || [],
@@ -608,18 +696,32 @@ IMPORTANT: Ground the metrics in the friction point data provided. The cost redu
           }
         }
 
-        // Rate limit: 500ms between API calls to avoid rate limits
+        // Rate limit: 500ms between API calls
         if (useCases.indexOf(uc) < useCases.length - 1) {
           await new Promise((r) => setTimeout(r, 500));
         }
       }
 
-      // Save workflow maps to the scenario
-      await storage.updateScenario(scenarioId, {
-        workflowMaps,
-      } as any);
-
-      res.json({ success: true, count: workflowMaps.length, workflowMaps });
+      // For single-use-case regeneration, merge with existing maps
+      if (useCaseId && workflowMaps.length > 0) {
+        const existingMaps = (scenario.workflowMaps as WorkflowMap[]) || [];
+        const mergedMaps = existingMaps.map((m) =>
+          m.useCaseId === useCaseId ? workflowMaps[0] : m,
+        );
+        // If the use case wasn't in existing maps, add it
+        if (!existingMaps.some((m) => m.useCaseId === useCaseId)) {
+          mergedMaps.push(workflowMaps[0]);
+        }
+        await storage.updateScenario(scenarioId, {
+          workflowMaps: mergedMaps,
+        } as any);
+        res.json({ success: true, count: 1, workflowMaps: mergedMaps });
+      } else {
+        await storage.updateScenario(scenarioId, {
+          workflowMaps,
+        } as any);
+        res.json({ success: true, count: workflowMaps.length, workflowMaps });
+      }
     } catch (err: any) {
       console.error("Workflow generation error:", err.message);
       res.status(500).json({ message: "Workflow generation error" });

@@ -41,8 +41,8 @@
   --color-blueally-dark: #0a0e27;
   --color-blueally-light: #f0f4ff;
 
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-heading: 'Inter', system-ui, sans-serif;
+  --font-sans: 'DM Sans', system-ui, -apple-system, sans-serif;
+  --font-heading: 'DM Sans', system-ui, sans-serif;
   --font-mono: 'SF Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
 
   --radius: 0.75rem;
@@ -114,7 +114,7 @@
   }
 
   html {
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;

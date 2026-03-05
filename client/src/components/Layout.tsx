@@ -82,14 +82,16 @@ export default function Layout({
               onClick={() => navigate("/")}
               className="flex items-center gap-2 hover:opacity-80 transition-opacity"
             >
-              <div
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-xs"
-                style={{
-                  background: "linear-gradient(135deg, #001278, #02a2fd)",
-                }}
-              >
-                BA
-              </div>
+              <img
+                src="/blueally-logo.png"
+                alt="BlueAlly"
+                className="h-7 w-auto dark:hidden"
+              />
+              <img
+                src="/blueally-logo-white.png"
+                alt="BlueAlly"
+                className="h-7 w-auto hidden dark:block"
+              />
               <span className="font-semibold text-foreground hidden sm:inline">
                 AI Workflow
               </span>

@@ -23,6 +23,8 @@ function getDatabaseUrl(): string {
 
 const databaseUrl = getDatabaseUrl();
 
+// Neon serverless driver works in both Node.js and serverless environments.
+// The ws polyfill is only needed in Node.js (ignored in Vercel edge/serverless).
 export const db = drizzle({
   connection: databaseUrl,
   schema,

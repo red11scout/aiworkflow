@@ -311,7 +311,56 @@ export const BUSINESS_FUNCTIONS: BusinessFunctionRef[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// 12. HELPER FUNCTIONS
+// 12. EPOCH FRAMEWORK (Human-in-the-Loop Decision Categories)
+// ---------------------------------------------------------------------------
+
+export const EPOCH_CATEGORIES = [
+  {
+    id: "ethical" as const,
+    label: "Ethical",
+    letter: "E",
+    color: "#8B5CF6",
+    description: "Decisions with moral weight — bias mitigation, fairness, legal judgments",
+    examples: ["Hiring decisions", "Content moderation", "Credit approvals", "Patient care"],
+  },
+  {
+    id: "political" as const,
+    label: "Political",
+    letter: "P",
+    color: "#EF4444",
+    description: "High-stakes negotiations, stakeholder or regulatory sensitivity",
+    examples: ["Budget approvals", "Vendor selection", "Regulatory filings", "Public statements"],
+  },
+  {
+    id: "operational" as const,
+    label: "Operational",
+    letter: "O",
+    color: "#F59E0B",
+    description: "Edge cases, circuit breakers, domain expertise decisions",
+    examples: ["Exception handling", "Escalation triggers", "Process overrides", "Quality gates"],
+  },
+  {
+    id: "creative" as const,
+    label: "Creative",
+    letter: "C",
+    color: "#06B6D4",
+    description: "Original strategy, brand voice, novel innovation",
+    examples: ["Campaign strategy", "Product design", "Innovation decisions", "Brand voice"],
+  },
+  {
+    id: "human" as const,
+    label: "Human",
+    letter: "H",
+    color: "#36bf78",
+    description: "Tasks demanding empathy, trust, or personal connection",
+    examples: ["Customer complaints", "Performance reviews", "Crisis communication", "Negotiation"],
+  },
+] as const;
+
+export type EpochCategoryId = typeof EPOCH_CATEGORIES[number]["id"];
+
+// ---------------------------------------------------------------------------
+// 13. HELPER FUNCTIONS
 // ---------------------------------------------------------------------------
 
 export function getRoleByRoleId(roleId: string): StandardizedRole | undefined {

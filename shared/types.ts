@@ -148,6 +148,32 @@ export interface PriorityScore {
 }
 
 // =========================================================================
+// EPOCH FRAMEWORK (Human-in-the-Loop Decision Categories)
+// =========================================================================
+
+export type EpochCategory = "ethical" | "political" | "operational" | "creative" | "human";
+
+export interface HITLCheckpoint {
+  id: string;
+  epochCategory: EpochCategory;
+  description: string;
+  approverRole: string;
+  isRequired: boolean;
+  estimatedMinutes: number;
+}
+
+// =========================================================================
+// DATA SPECIFICATIONS
+// =========================================================================
+
+export interface WorkflowDataSpec {
+  name: string;
+  type: "structured" | "semi_structured" | "unstructured" | "real_time";
+  source?: string;
+  format?: string;
+}
+
+// =========================================================================
 // WORKFLOW VISUALIZATION
 // =========================================================================
 
@@ -188,6 +214,72 @@ export interface WorkflowMap {
   desiredOutcomes: string[];
   dataTypes: string[];
   integrations: string[];
+}
+
+// =========================================================================
+// INTERACTIVE WORKFLOW BUILDER (extends base workflow types)
+// =========================================================================
+
+export interface InteractiveWorkflowNode extends TargetWorkflowNode {
+  /** Number of employees performing this task */
+  employeeCount?: number;
+  /** Average hourly cost (pre-populated from StandardizedRole) */
+  avgHourlyCost?: number;
+  /** Hours per single execution of this task */
+  hoursPerTask?: number;
+  /** Number of executions per month */
+  tasksPerMonth?: number;
+  /** Input data specifications */
+  inputs?: WorkflowDataSpec[];
+  /** Output data specifications */
+  outputs?: WorkflowDataSpec[];
+  /** Data sources this step accesses */
+  dataSources?: string[];
+  /** HITL checkpoint (if this node is a decision gate) */
+  hitlCheckpoint?: HITLCheckpoint;
+  /** Friction type associated with this step */
+  frictionType?: "process" | "data" | "technology" | "knowledge";
+  /** Connections to next nodes */
+  nextNodeIds?: string[];
+  /** Connections from previous nodes */
+  prevNodeIds?: string[];
+  /** React Flow position (for canvas rendering) */
+  position?: { x: number; y: number };
+}
+
+export interface WorkflowStaffing {
+  employeeCount: number;
+  avgHourlyCost: number;
+  hoursPerWeek: number;
+}
+
+export interface WorkflowLiveMetrics {
+  currentTotalHours: number;
+  targetTotalHours: number;
+  hoursSaved: number;
+  costSaved: number;
+  timeReductionPct: number;
+  costReductionPct: number;
+  fteEquivalent: number;
+  automationPct: number;
+  hitlCheckpointCount: number;
+}
+
+export interface InteractiveWorkflowMap extends WorkflowMap {
+  /** Builder version for forward compatibility */
+  builderVersion: number;
+  /** Last edited timestamp */
+  lastEditedAt: string;
+  /** Whether user has modified from imported/AI-generated state */
+  isUserModified: boolean;
+  /** Staffing estimates for cost calculations */
+  currentStaffing?: WorkflowStaffing;
+  /** Real-time calculated metrics (populated by HyperFormula) */
+  liveMetrics?: WorkflowLiveMetrics;
+  /** Interactive nodes with positions and extended data */
+  currentStateInteractive?: InteractiveWorkflowNode[];
+  /** Interactive target nodes */
+  targetStateInteractive?: InteractiveWorkflowNode[];
 }
 
 // =========================================================================

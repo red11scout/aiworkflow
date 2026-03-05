@@ -3,6 +3,7 @@ import { useLocation, useParams } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, getOwnerToken } from "@/lib/queryClient";
 import { parseCurrencyString, formatCurrency as formatCurrencyCompact } from "@/lib/utils";
+import { generatePDFBlob } from "@/components/pdf/PDFReport";
 import Layout from "@/components/Layout";
 // Note: FRICTION_RECOVERY_RATE no longer needed — frictionUCMap computes actual recovery from benefits data
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -51,6 +52,7 @@ import {
   GitCompareArrows,
   Clock,
   Zap,
+  FileText,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -385,6 +387,38 @@ export default function Dashboard() {
       toast.success("JSON export downloaded");
     } catch (error: any) {
       toast.error(`JSON export failed: ${error.message}`);
+    }
+  };
+
+  // Export PDF (client-side via @react-pdf/renderer)
+  const handleExportPdf = async () => {
+    try {
+      toast.info("Generating PDF report...");
+      const blob = await generatePDFBlob({
+        companyName: (project as any)?.companyName || "Company",
+        generatedAt: new Date().toLocaleDateString("en-US", {
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+        }),
+        useCases,
+        benefits,
+        readiness,
+        priorities,
+        workflowMaps,
+        strategicThemes,
+        frictionPoints: frictionItems,
+        executiveDashboard: dashboard,
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${(project as any)?.companyName || "report"}-ai-workflow-report.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("PDF report downloaded");
+    } catch (error: any) {
+      toast.error(`PDF export failed: ${error.message}`);
     }
   };
 
@@ -1547,9 +1581,13 @@ export default function Dashboard() {
               <Download className="w-4 h-4" />
               Download HTML Report
             </Button>
+            <Button variant="outline" onClick={handleExportPdf} className="flex items-center gap-2">
+              <FileText className="w-4 h-4" />
+              Download PDF
+            </Button>
             <Button variant="outline" onClick={handleSaveAsPdf} className="flex items-center gap-2">
               <Printer className="w-4 h-4" />
-              Save as PDF
+              Print to PDF
             </Button>
             <Button variant="outline" onClick={handleExportExcel} className="flex items-center gap-2">
               <FileSpreadsheet className="w-4 h-4" />

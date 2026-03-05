@@ -9,6 +9,7 @@ const allowlist = [
   "drizzle-zod",
   "exceljs",
   "express",
+  "hyperformula",
   "nanoid",
   "ws",
   "zod",
