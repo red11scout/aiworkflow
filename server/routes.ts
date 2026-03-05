@@ -1,18 +1,66 @@
 import type { Express } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
-import { parseImportedJSON } from "./json-parser";
-import {
-  recalculateBenefits,
-  recalculateReadiness,
-  recalculatePriorities,
-  generateScenarioAnalysis,
-  generateMultiYearProjection,
-  generateExecutiveDashboard,
-} from "./calculation-engine";
-import { SCENARIO_MULTIPLIERS } from "@shared/formulas";
+import { SCENARIO_MULTIPLIERS, parseCurrencyString, formatCurrency } from "@shared/formulas";
 import { nanoid } from "nanoid";
 import type { WorkflowMap, InteractiveWorkflowNode, HITLCheckpoint } from "@shared/types";
+
+// ---------------------------------------------------------------------------
+// Inline JSON parser — extracts structured data from imported discover JSON
+// ---------------------------------------------------------------------------
+
+function parseImportedJSON(raw: any): Record<string, any> {
+  const steps = raw?.analysis?.steps || [];
+  const getStepData = (stepNum: number) => {
+    const step = steps.find((s: any) => s.step === stepNum);
+    return step?.data || [];
+  };
+
+  return {
+    companyOverview: steps.find((s: any) => s.step === 0)?.content || "",
+    strategicThemes: getStepData(1),
+    businessFunctions: getStepData(2),
+    frictionPoints: getStepData(3),
+    useCases: getStepData(4),
+    benefits: getStepData(5),
+    readiness: getStepData(6),
+    priorities: getStepData(7),
+    executiveSummary: raw?.analysis?.executiveSummary || null,
+    executiveDashboard: raw?.analysis?.executiveDashboard || null,
+    scenarioAnalysis: raw?.analysis?.scenarioAnalysis || null,
+    multiYear: raw?.analysis?.multiYearProjection || null,
+    frictionRecovery: raw?.analysis?.frictionRecovery || null,
+    analysisSummary: raw?.analysis?.summary || "",
+    validationWarnings: raw?.analysis?.validationWarnings || [],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Simple benefit multiplier for conservative/optimistic scenarios
+// ---------------------------------------------------------------------------
+
+function applyBenefitMultiplier(benefits: any[], multiplier: { benefitMultiplier: number; probabilityMultiplier: number }): any[] {
+  return benefits.map((b: any) => {
+    const scale = multiplier.benefitMultiplier;
+    const probScale = multiplier.probabilityMultiplier;
+    const costVal = parseCurrencyString(b.costBenefit || "0") * scale;
+    const revVal = parseCurrencyString(b.revenueBenefit || "0") * scale;
+    const riskVal = parseCurrencyString(b.riskBenefit || "0") * scale;
+    const cfVal = parseCurrencyString(b.cashFlowBenefit || "0") * scale;
+    const total = costVal + revVal + riskVal + cfVal;
+    const prob = Math.min(1, (b.probabilityOfSuccess || 0.7) * probScale);
+    return {
+      ...b,
+      costBenefit: formatCurrency(costVal),
+      revenueBenefit: formatCurrency(revVal),
+      riskBenefit: formatCurrency(riskVal),
+      cashFlowBenefit: formatCurrency(cfVal),
+      totalAnnualValue: formatCurrency(total),
+      expectedValue: formatCurrency(total * prob),
+      probabilityOfSuccess: prob,
+    };
+  });
+}
 
 export async function registerRoutes(server: Server, app: Express) {
   // =====================================================================
@@ -42,7 +90,7 @@ export async function registerRoutes(server: Server, app: Express) {
       rawImport: rawImport || null,
     });
 
-    // If rawImport provided, parse and create base scenario
+    // Always create a base scenario for the project
     if (rawImport) {
       try {
         const parsed = parseImportedJSON(rawImport);
@@ -71,6 +119,16 @@ export async function registerRoutes(server: Server, app: Express) {
       } catch (err: any) {
         console.error("Error parsing import:", err.message);
       }
+    } else {
+      // Create empty base scenario so manual use cases can be added
+      await storage.createScenario({
+        projectId: project.id,
+        name: "Base Case",
+        versionType: "base",
+        isActive: true,
+        currentStep: 0,
+        completedSteps: [],
+      });
     }
 
     res.json(project);
@@ -232,7 +290,7 @@ export async function registerRoutes(server: Server, app: Express) {
     if (versionType === "conservative" || versionType === "optimistic") {
       if (scenarioData.benefits) {
         const multiplier = SCENARIO_MULTIPLIERS[versionType];
-        scenarioData.benefits = recalculateBenefits(
+        scenarioData.benefits = applyBenefitMultiplier(
           scenarioData.benefits,
           multiplier,
         );
@@ -315,87 +373,6 @@ export async function registerRoutes(server: Server, app: Express) {
   });
 
   // =====================================================================
-  // CALCULATIONS
-  // =====================================================================
-
-  app.post("/api/calculate/benefits", async (req, res) => {
-    const { benefits, scenarioType } = req.body;
-    const multiplier =
-      SCENARIO_MULTIPLIERS[scenarioType] || SCENARIO_MULTIPLIERS.base;
-    const result = recalculateBenefits(benefits, multiplier);
-    res.json(result);
-  });
-
-  app.post("/api/calculate/readiness", async (req, res) => {
-    const { readiness } = req.body;
-    const result = recalculateReadiness(readiness);
-    res.json(result);
-  });
-
-  app.post("/api/calculate/priorities", async (req, res) => {
-    const { benefits, readiness, frictionPoints, useCases } = req.body;
-    const result = recalculatePriorities(benefits, readiness, frictionPoints, useCases);
-    res.json(result);
-  });
-
-  app.post("/api/calculate/scenarios", async (req, res) => {
-    const { benefits } = req.body;
-    const result = generateScenarioAnalysis(benefits);
-    res.json(result);
-  });
-
-  app.post("/api/calculate/multi-year", async (req, res) => {
-    const { benefits } = req.body;
-    const result = generateMultiYearProjection(benefits);
-    res.json(result);
-  });
-
-  app.post("/api/calculate/dashboard", async (req, res) => {
-    const { benefits, readiness, priorities } = req.body;
-    const result = generateExecutiveDashboard(benefits, readiness, priorities);
-    res.json(result);
-  });
-
-  // Full recalculation: update all downstream data for a scenario
-  app.post("/api/scenarios/:id/recalculate", async (req, res) => {
-    const scenario = await storage.getScenario(req.params.id);
-    if (!scenario)
-      return res.status(404).json({ message: "Scenario not found" });
-
-    const benefits = scenario.benefits || [];
-    const readinessData = scenario.readiness || [];
-    const frictionData = (scenario.frictionPoints || []) as any[];
-    const useCaseData = (scenario.useCases || []) as any[];
-
-    const updatedReadiness = recalculateReadiness(readinessData);
-    const updatedBenefits = recalculateBenefits(benefits);
-    const updatedPriorities = recalculatePriorities(
-      updatedBenefits,
-      updatedReadiness,
-      frictionData,
-      useCaseData,
-    );
-    const updatedScenarios = generateScenarioAnalysis(updatedBenefits);
-    const updatedMultiYear = generateMultiYearProjection(updatedBenefits);
-    const updatedDashboard = generateExecutiveDashboard(
-      updatedBenefits,
-      updatedReadiness,
-      updatedPriorities,
-    );
-
-    const updated = await storage.updateScenario(scenario.id, {
-      benefits: updatedBenefits,
-      readiness: updatedReadiness,
-      priorities: updatedPriorities,
-      scenarioAnalysis: updatedScenarios,
-      multiYear: updatedMultiYear,
-      executiveDashboard: updatedDashboard,
-    } as any);
-
-    res.json(updated);
-  });
-
-  // =====================================================================
   // SCENARIO COMPARISON
   // =====================================================================
 
@@ -469,6 +446,7 @@ export async function registerRoutes(server: Server, app: Express) {
     }
   });
 
+
   // AI workflow generation — batch generates workflows for ALL use cases in a scenario
   app.post("/api/ai/generate-workflow", async (req, res) => {
     const { scenarioId, useCaseId, currentStateContext } = req.body;
@@ -506,6 +484,7 @@ export async function registerRoutes(server: Server, app: Express) {
       const client = new Anthropic({ apiKey });
 
       const workflowMaps: WorkflowMap[] = [];
+      const debugLog: string[] = [];
 
       for (const uc of useCases) {
         const matchedFP = frictionPoints.find(
@@ -524,7 +503,7 @@ Generate BOTH current state (5-8 steps showing the manual/legacy process) and ta
 
         const response = await client.messages.create({
           model: "claude-sonnet-4-5-20250929",
-          max_tokens: 6144,
+          max_tokens: 8192,
           system: `You are an expert AI workflow architect specializing in enterprise process transformation. Generate detailed workflow visualizations comparing current manual processes with AI-powered alternatives.
 
 CRITICAL REQUIREMENTS:
@@ -634,16 +613,28 @@ Return JSON with this EXACT structure:
 }
 
 IMPORTANT:
+- Keep descriptions to 1-2 SHORT sentences each (under 30 words). Be concise.
+- Use 5-6 steps per workflow, not more.
 - Ground metrics in the friction point data. Cost "before" should align with friction annual cost.
 - Include employeeCount, avgHourlyCost, hoursPerTask, tasksPerMonth on EVERY node for live cost calculations.
 - At least 1 target-state node MUST have isHumanInTheLoop: true with a hitlCheckpoint object.
-- Tag bottleneck current-state nodes with a frictionType.`,
+- Tag bottleneck current-state nodes with a frictionType.
+- The COMPLETE JSON must fit within 6000 tokens. Be efficient.`,
             },
           ],
         });
 
-        const text =
+        const rawText =
           response.content[0].type === "text" ? response.content[0].text : "";
+
+        // Strip markdown code blocks if present
+        const text = rawText
+          .replace(/^```(?:json)?\s*\n?/gm, "")
+          .replace(/\n?```\s*$/gm, "")
+          .trim();
+
+        debugLog.push(`Raw response length: ${rawText.length}, stripped: ${text.length}`);
+
         const jsonMatch = text.match(/\{[\s\S]*\}/);
 
         const emptyMetrics = {
@@ -654,10 +645,45 @@ IMPORTANT:
         };
 
         if (jsonMatch) {
+          let jsonStr = jsonMatch[0];
+          let workflow: any;
           try {
-            const workflow = JSON.parse(jsonMatch[0]);
+            workflow = JSON.parse(jsonStr);
+          } catch {
+            // Attempt to repair truncated JSON by closing open brackets
+            debugLog.push("Initial parse failed — attempting JSON repair");
+            let repaired = jsonStr;
+            // Count unclosed brackets
+            let braces = 0, brackets = 0;
+            let inString = false, escape = false;
+            for (const ch of repaired) {
+              if (escape) { escape = false; continue; }
+              if (ch === "\\") { escape = true; continue; }
+              if (ch === '"') { inString = !inString; continue; }
+              if (inString) continue;
+              if (ch === '{') braces++;
+              if (ch === '}') braces--;
+              if (ch === '[') brackets++;
+              if (ch === ']') brackets--;
+            }
+            // Remove trailing comma or partial value
+            repaired = repaired.replace(/,\s*$/, "");
+            // Close open brackets/braces
+            for (let i = 0; i < brackets; i++) repaired += "]";
+            for (let i = 0; i < braces; i++) repaired += "}";
+            try {
+              workflow = JSON.parse(repaired);
+              debugLog.push("JSON repair succeeded");
+            } catch (e2: any) {
+              debugLog.push(`JSON repair also failed: ${e2.message}`);
+              workflow = null;
+            }
+          }
 
-            // Auto-assign dagre positions for React Flow canvas
+          if (workflow) {
+            debugLog.push(`Parsed keys: ${Object.keys(workflow).join(", ")}`);
+            debugLog.push(`currentState: ${(workflow.currentState || []).length} nodes, targetState: ${(workflow.targetState || []).length} nodes`);
+
             const currentNodes = (workflow.currentState || []).map((node: any, i: number) => ({
               ...node,
               position: { x: 250, y: i * 150 },
@@ -679,8 +705,8 @@ IMPORTANT:
               dataTypes: uc.dataTypes || [],
               integrations: uc.integrations || [],
             });
-          } catch (parseErr) {
-            console.error(`Failed to parse workflow for ${uc.id}:`, parseErr);
+          } else {
+            // Parse and repair both failed
             workflowMaps.push({
               useCaseId: uc.id,
               useCaseName: uc.name,
@@ -694,6 +720,20 @@ IMPORTANT:
               integrations: uc.integrations || [],
             });
           }
+        } else {
+          debugLog.push(`NO JSON FOUND in response. Text starts with: ${text.substring(0, 200)}`);
+          workflowMaps.push({
+            useCaseId: uc.id,
+            useCaseName: uc.name,
+            agenticPattern: uc.agenticPattern || "",
+            patternRationale: uc.patternRationale || "",
+            currentState: [],
+            targetState: [],
+            comparisonMetrics: emptyMetrics,
+            desiredOutcomes: uc.desiredOutcomes || [],
+            dataTypes: uc.dataTypes || [],
+            integrations: uc.integrations || [],
+          });
         }
 
         // Rate limit: 500ms between API calls
@@ -701,6 +741,17 @@ IMPORTANT:
           await new Promise((r) => setTimeout(r, 500));
         }
       }
+
+      // Debug info for troubleshooting
+      const debugInfo = {
+        totalMaps: workflowMaps.length,
+        log: debugLog,
+        mapSummaries: workflowMaps.map((m) => ({
+          useCaseId: m.useCaseId,
+          currentCount: m.currentState?.length || 0,
+          targetCount: m.targetState?.length || 0,
+        })),
+      };
 
       // For single-use-case regeneration, merge with existing maps
       if (useCaseId && workflowMaps.length > 0) {
@@ -715,16 +766,19 @@ IMPORTANT:
         await storage.updateScenario(scenarioId, {
           workflowMaps: mergedMaps,
         } as any);
-        res.json({ success: true, count: 1, workflowMaps: mergedMaps });
+        res.json({ success: true, count: 1, workflowMaps: mergedMaps, debug: debugInfo });
       } else {
         await storage.updateScenario(scenarioId, {
           workflowMaps,
         } as any);
-        res.json({ success: true, count: workflowMaps.length, workflowMaps });
+        res.json({ success: true, count: workflowMaps.length, workflowMaps, debug: debugInfo });
       }
     } catch (err: any) {
-      console.error("Workflow generation error:", err.message);
-      res.status(500).json({ message: "Workflow generation error" });
+      console.error("Workflow generation error:", err.message, err.stack);
+      const status = err.status || 500;
+      res.status(status).json({
+        message: `Workflow generation error: ${err.message || "Unknown error"}`,
+      });
     }
   });
 

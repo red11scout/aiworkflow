@@ -3,3 +3,4 @@ dist/
 .env
 *.cjs
 .DS_Store
+.vercel

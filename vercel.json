@@ -4,12 +4,13 @@
   "outputDirectory": "dist/public",
   "functions": {
     "api/**": {
-      "maxDuration": 60,
+      "maxDuration": 300,
       "includeFiles": "../dist/index.cjs"
     }
   },
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api" },
-    { "source": "/(.*)", "destination": "/$1" }
+  "routes": [
+    { "handle": "filesystem" },
+    { "src": "/api/(.*)", "dest": "/api" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ]
 }

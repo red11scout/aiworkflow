@@ -95,7 +95,7 @@ export default function Home() {
       queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
       setDialogOpen(false);
       resetForm();
-      navigate(`/project/${data.id}/upload`);
+      navigate(`/project/${data.id}`);
     },
   });
 
@@ -124,7 +124,7 @@ export default function Home() {
   }
 
   return (
-    <Layout showStepper={false}>
+    <Layout>
       {/* Hero Section */}
       <div className="text-center py-16">
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-muted/80 border border-border/50 text-xs font-medium text-muted-foreground mb-6">
@@ -294,7 +294,7 @@ export default function Home() {
                 key={project.id}
                 className="group cursor-pointer hover:shadow-lg hover:shadow-primary/5 hover:border-primary/30 hover:-translate-y-0.5 transition-all duration-200 relative rounded-xl"
                 onClick={() =>
-                  navigate(`/project/${project.id}/upload`)
+                  navigate(`/project/${project.id}`)
                 }
               >
                 <CardHeader className="pb-3">

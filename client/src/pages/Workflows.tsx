@@ -1,22 +1,27 @@
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useLocation, useParams } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import Layout from "@/components/Layout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { WorkflowComparison } from "@/components/workflow/WorkflowComparison";
+import { WorkflowMetricsRow } from "@/components/workflow/WorkflowMetricsRow";
+import { UseCaseBenefitSummary } from "@/components/workflow/UseCaseBenefitSummary";
 import {
-  GitBranch,
-  ChevronLeft,
-  ChevronRight,
+  calculateWorkflowMetrics,
+  destroyCalculator,
+} from "@/lib/workflow-calculator";
+import {
   Sparkles,
   Save,
   Loader2,
+  ChevronLeft,
+  ChevronRight,
+  GitBranch,
   AlertCircle,
-  RotateCcw,
 } from "lucide-react";
-import { WorkflowCanvas, MetricsBar, NodePropertiesPanel } from "@/components/workflow";
-import { calculateWorkflowMetrics, destroyCalculator } from "@/lib/workflow-calculator";
+import { toast } from "sonner";
 import type {
   WorkflowMap,
   WorkflowNode,
@@ -28,6 +33,32 @@ import type {
 } from "@shared/types";
 
 // ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface ProjectResponse {
+  id: string;
+  name: string;
+  companyName: string;
+  industry: string;
+  description?: string;
+  status: string;
+  activeScenario?: ScenarioData;
+  scenarios?: ScenarioData[];
+}
+
+interface ScenarioData {
+  id: string;
+  projectId: string;
+  name: string;
+  isActive: boolean;
+  useCases: UseCase[] | null;
+  workflowMaps: WorkflowMap[] | null;
+  completedSteps: number[];
+  [key: string]: any;
+}
+
+// ---------------------------------------------------------------------------
 // Helpers: Convert legacy nodes to interactive format
 // ---------------------------------------------------------------------------
 
@@ -36,17 +67,18 @@ function toInteractiveNode(
   index: number,
 ): InteractiveWorkflowNode {
   const target = node as TargetWorkflowNode;
+  const interactive = node as InteractiveWorkflowNode;
   return {
     ...node,
     isAIEnabled: target.isAIEnabled ?? false,
     isHumanInTheLoop: target.isHumanInTheLoop ?? false,
     aiCapabilities: target.aiCapabilities ?? [],
     automationLevel: target.automationLevel ?? "manual",
-    employeeCount: 1,
-    avgHourlyCost: 75,
-    hoursPerTask: 1,
-    tasksPerMonth: 20,
-    position: { x: 0, y: index * 150 },
+    employeeCount: interactive.employeeCount ?? 1,
+    avgHourlyCost: interactive.avgHourlyCost ?? 75,
+    hoursPerTask: interactive.hoursPerTask ?? 1,
+    tasksPerMonth: interactive.tasksPerMonth ?? 20,
+    position: interactive.position ?? { x: 0, y: index * 150 },
   };
 }
 
@@ -70,49 +102,65 @@ function workflowMapToInteractive(wm: WorkflowMap): InteractiveWorkflowMap {
 // ---------------------------------------------------------------------------
 
 export default function Workflows() {
-  const { projectId: id } = useParams<{ projectId: string }>();
+  const { projectId } = useParams<{ projectId: string }>();
   const [, navigate] = useLocation();
   const queryClient = useQueryClient();
 
   // Data fetching
-  const { data: project } = useQuery({ queryKey: [`/api/projects/${id}`] });
-  const { data: scenarios } = useQuery({
-    queryKey: [`/api/projects/${id}/scenarios`],
+  const { data: project } = useQuery<ProjectResponse>({
+    queryKey: [`/api/projects/${projectId}`],
+    enabled: !!projectId,
   });
-  const activeScenario = (scenarios as any[])?.find((s: any) => s.isActive);
 
-  const workflowMaps: WorkflowMap[] = activeScenario?.workflowMaps || [];
-  const useCases: UseCase[] = activeScenario?.useCases || [];
+  const scenario = project?.activeScenario;
+  const workflowMaps: WorkflowMap[] =
+    (scenario?.workflowMaps as WorkflowMap[]) || [];
+  const useCases: UseCase[] = (scenario?.useCases as UseCase[]) || [];
 
   // Local state
-  const [selectedUseCaseId, setSelectedUseCaseId] = useState<string | null>(null);
-  const [selectedNode, setSelectedNode] = useState<InteractiveWorkflowNode | null>(null);
-  const [liveMetrics, setLiveMetrics] = useState<WorkflowLiveMetrics | null>(null);
+  const [selectedUseCaseId, setSelectedUseCaseId] = useState<string | null>(
+    null,
+  );
+  const [liveMetrics, setLiveMetrics] = useState<WorkflowLiveMetrics | null>(
+    null,
+  );
 
   // Convert workflow maps to interactive format
-  const [interactiveMaps, setInteractiveMaps] = useState<Map<string, InteractiveWorkflowMap>>(new Map());
+  const [interactiveMaps, setInteractiveMaps] = useState<
+    Map<string, InteractiveWorkflowMap>
+  >(new Map());
 
-  // Sync imported workflow data → interactive maps
+  // Sync imported workflow data to interactive maps
   useEffect(() => {
     if (workflowMaps.length > 0 && interactiveMaps.size === 0) {
-      const mapEntries = new Map<string, InteractiveWorkflowMap>();
+      const entries = new Map<string, InteractiveWorkflowMap>();
       for (const wm of workflowMaps) {
-        mapEntries.set(wm.useCaseId, workflowMapToInteractive(wm));
+        entries.set(wm.useCaseId, workflowMapToInteractive(wm));
       }
-      setInteractiveMaps(mapEntries);
+      setInteractiveMaps(entries);
     }
   }, [workflowMaps, interactiveMaps.size]);
 
   // Effective selection
   const effectiveSelectedId =
-    selectedUseCaseId || workflowMaps[0]?.useCaseId || useCases[0]?.id || null;
+    selectedUseCaseId ||
+    workflowMaps[0]?.useCaseId ||
+    useCases[0]?.id ||
+    null;
 
+  const selectedUseCase = useCases.find((uc) => uc.id === effectiveSelectedId);
   const selectedInteractiveMap = effectiveSelectedId
     ? interactiveMaps.get(effectiveSelectedId)
     : undefined;
 
-  const currentNodes = selectedInteractiveMap?.currentStateInteractive || [];
-  const targetNodes = selectedInteractiveMap?.targetStateInteractive || [];
+  const selectedWorkflowMap = workflowMaps.find(
+    (wm) => wm.useCaseId === effectiveSelectedId,
+  );
+
+  const currentNodes =
+    selectedInteractiveMap?.currentStateInteractive || [];
+  const targetNodes =
+    selectedInteractiveMap?.targetStateInteractive || [];
 
   // Recalculate metrics when nodes change
   useEffect(() => {
@@ -129,87 +177,26 @@ export default function Workflows() {
     return () => destroyCalculator();
   }, []);
 
-  // --- Node update handlers ---
-  const handleCurrentNodesChange = useCallback(
-    (nodes: InteractiveWorkflowNode[]) => {
-      if (!effectiveSelectedId) return;
-      setInteractiveMaps((prev) => {
-        const next = new Map(prev);
-        const existing = next.get(effectiveSelectedId);
-        if (existing) {
-          next.set(effectiveSelectedId, {
-            ...existing,
-            currentStateInteractive: nodes,
-            isUserModified: true,
-            lastEditedAt: new Date().toISOString(),
-          });
-        }
-        return next;
-      });
-    },
-    [effectiveSelectedId],
-  );
+  // -----------------------------------------------------------------------
+  // Save mutation
+  // -----------------------------------------------------------------------
 
-  const handleTargetNodesChange = useCallback(
-    (nodes: InteractiveWorkflowNode[]) => {
-      if (!effectiveSelectedId) return;
-      setInteractiveMaps((prev) => {
-        const next = new Map(prev);
-        const existing = next.get(effectiveSelectedId);
-        if (existing) {
-          next.set(effectiveSelectedId, {
-            ...existing,
-            targetStateInteractive: nodes,
-            isUserModified: true,
-            lastEditedAt: new Date().toISOString(),
-          });
-        }
-        return next;
-      });
-    },
-    [effectiveSelectedId],
-  );
-
-  const handleNodeUpdate = useCallback(
-    (nodeId: string, updates: Partial<InteractiveWorkflowNode>) => {
-      if (!effectiveSelectedId) return;
-      setInteractiveMaps((prev) => {
-        const next = new Map(prev);
-        const existing = next.get(effectiveSelectedId);
-        if (!existing) return next;
-
-        const updateNodes = (nodes: InteractiveWorkflowNode[]) =>
-          nodes.map((n) => (n.id === nodeId ? { ...n, ...updates } : n));
-
-        next.set(effectiveSelectedId, {
-          ...existing,
-          currentStateInteractive: updateNodes(existing.currentStateInteractive || []),
-          targetStateInteractive: updateNodes(existing.targetStateInteractive || []),
-          isUserModified: true,
-          lastEditedAt: new Date().toISOString(),
-        });
-        return next;
-      });
-
-      // Update selected node state too
-      if (selectedNode && selectedNode.id === nodeId) {
-        setSelectedNode((prev) => (prev ? { ...prev, ...updates } : null));
-      }
-    },
-    [effectiveSelectedId, selectedNode],
-  );
-
-  // --- Save: convert interactive maps back to WorkflowMap[] ---
   const saveMutation = useMutation({
     mutationFn: async () => {
+      if (!scenario) throw new Error("No active scenario");
       const mapsToSave: WorkflowMap[] = [];
+
       for (const imap of Array.from(interactiveMaps.values())) {
         mapsToSave.push({
           useCaseId: imap.useCaseId,
           useCaseName: imap.useCaseName,
           agenticPattern: imap.agenticPattern,
           patternRationale: imap.patternRationale,
-          currentState: (imap.currentStateInteractive || imap.currentState || []).map((n: WorkflowNode | InteractiveWorkflowNode) => ({
+          currentState: (
+            imap.currentStateInteractive ||
+            imap.currentState ||
+            []
+          ).map((n) => ({
             id: n.id,
             stepNumber: n.stepNumber,
             name: n.name,
@@ -222,7 +209,11 @@ export default function Workflows() {
             isDecisionPoint: n.isDecisionPoint,
             painPoints: n.painPoints,
           })),
-          targetState: (imap.targetStateInteractive || imap.targetState || []).map((n: TargetWorkflowNode | InteractiveWorkflowNode) => ({
+          targetState: (
+            imap.targetStateInteractive ||
+            imap.targetState ||
+            []
+          ).map((n) => ({
             id: n.id,
             stepNumber: n.stepNumber,
             name: n.name,
@@ -248,72 +239,73 @@ export default function Workflows() {
 
       const res = await apiRequest(
         "PUT",
-        `/api/scenarios/${activeScenario?.id}/section/workflow_maps`,
+        `/api/scenarios/${scenario.id}/section/workflow_maps`,
         { data: mapsToSave },
       );
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: [`/api/projects/${id}/scenarios`],
+        queryKey: [`/api/projects/${projectId}`],
       });
+      toast.success("Workflows saved");
+    },
+    onError: (error: Error) => {
+      toast.error(`Save failed: ${error.message}`);
     },
   });
 
-  // --- Generate AI Workflows ---
+  // -----------------------------------------------------------------------
+  // Generate AI Workflows
+  // -----------------------------------------------------------------------
+
   const generateMutation = useMutation({
     mutationFn: async () => {
-      // If user has modified current state, send it as context
-      const currentStateContext = effectiveSelectedId
-        ? interactiveMaps.get(effectiveSelectedId)?.currentStateInteractive
-        : undefined;
-
+      if (!scenario) throw new Error("No active scenario");
       const res = await apiRequest("POST", "/api/ai/generate-workflow", {
-        scenarioId: activeScenario?.id,
-        currentStateContext: currentStateContext && currentStateContext.length > 0
-          ? currentStateContext
-          : undefined,
+        scenarioId: scenario.id,
       });
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
+      // Log debug info if available
+      if (data?.debug) {
+        console.log("[Workflow Gen Debug]", JSON.stringify(data.debug, null, 2));
+      }
       // Reset interactive maps so they re-sync from server
       setInteractiveMaps(new Map());
       queryClient.invalidateQueries({
-        queryKey: [`/api/projects/${id}/scenarios`],
+        queryKey: [`/api/projects/${projectId}`],
       });
+      const totalSteps = data?.workflowMaps?.reduce(
+        (sum: number, m: any) => sum + (m.currentState?.length || 0) + (m.targetState?.length || 0),
+        0
+      ) || 0;
+      if (totalSteps > 0) {
+        toast.success(`Workflows generated — ${totalSteps} steps created`);
+      } else {
+        toast.error("Generation completed but no steps were created. Check console for details.");
+        console.error("[Workflow Gen] Response:", JSON.stringify(data, null, 2).substring(0, 2000));
+      }
+    },
+    onError: (error: Error) => {
+      toast.error(`Generation failed: ${error.message}`);
     },
   });
-
-  // --- Mark Complete & Navigate ---
-  const markComplete = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest(
-        "POST",
-        `/api/scenarios/${activeScenario?.id}/complete-step`,
-        { step: 6, section: "workflow_maps" },
-      );
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: [`/api/projects/${id}/scenarios`],
-      });
-    },
-  });
-
-  const handleNext = () => {
-    markComplete.mutate();
-    navigate(`/project/${id}/readiness`);
-  };
 
   const useCaseCount = useCases.length;
+  const hasWorkflows = workflowMaps.length > 0;
+  const hasWorkflowForSelected = !!selectedWorkflowMap;
+
+  // -----------------------------------------------------------------------
+  // Render
+  // -----------------------------------------------------------------------
 
   return (
     <Layout
-      projectId={id}
-      companyName={(project as any)?.companyName}
-      completedSteps={activeScenario?.completedSteps}
+      projectId={projectId}
+      companyName={project?.companyName}
+      activeTab="workshop"
     >
       {/* Page Header */}
       <div className="flex items-start justify-between gap-4 mb-6">
@@ -321,14 +313,17 @@ export default function Workflows() {
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2.5">
             <div
               className="w-9 h-9 rounded-lg flex items-center justify-center"
-              style={{ background: "linear-gradient(135deg, #001278, #02a2fd)" }}
+              style={{
+                background: "linear-gradient(135deg, #001278, #02a2fd)",
+              }}
             >
               <GitBranch className="w-5 h-5 text-white" />
             </div>
-            Interactive Workflow Builder
+            Workflow Visualization
           </h1>
           <p className="text-sm text-muted-foreground mt-1.5 max-w-2xl">
-            Edit current workflows and AI-powered alternatives. Drag nodes, adjust staffing, add HITL checkpoints — metrics update in real-time.
+            Compare current workflows against AI-powered alternatives. Edit
+            staffing and metrics to see real-time cost impact.
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -349,14 +344,18 @@ export default function Workflows() {
             onClick={() => generateMutation.mutate()}
             disabled={generateMutation.isPending || useCaseCount === 0}
             className="gap-2 text-white"
-            style={{ background: "linear-gradient(135deg, #001278, #02a2fd)" }}
+            style={{
+              background: "linear-gradient(135deg, #001278, #02a2fd)",
+            }}
           >
-            <Sparkles className={`w-4 h-4 ${generateMutation.isPending ? "animate-pulse" : ""}`} />
+            <Sparkles
+              className={`w-4 h-4 ${generateMutation.isPending ? "animate-pulse" : ""}`}
+            />
             {generateMutation.isPending
-              ? workflowMaps.length > 0
+              ? hasWorkflows
                 ? "Regenerating..."
                 : `Generating ${useCaseCount} workflows...`
-              : workflowMaps.length > 0
+              : hasWorkflows
                 ? "Regenerate"
                 : "Generate Workflows"}
           </Button>
@@ -369,35 +368,42 @@ export default function Workflows() {
           <Loader2 className="w-5 h-5 animate-spin text-[#02a2fd]" />
           <div>
             <p className="text-sm font-medium text-foreground">
-              Generating AI-powered workflows for {useCaseCount} use case{useCaseCount !== 1 ? "s" : ""}...
+              Generating workflows for {useCaseCount} use case
+              {useCaseCount !== 1 ? "s" : ""}...
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              This may take a minute. Each use case gets a detailed current-state vs AI-powered process comparison.
+              Each use case gets a current-state vs AI-powered process
+              comparison. This may take a minute.
             </p>
           </div>
         </div>
       )}
 
-      {/* Use Case Selector Tabs */}
-      {workflowMaps.length > 0 && (
-        <div className="flex items-center gap-1.5 mb-4 overflow-x-auto pb-1 -mx-1 px-1">
-          {workflowMaps.map((wm) => {
-            const isActive = wm.useCaseId === effectiveSelectedId;
-            const iMap = interactiveMaps.get(wm.useCaseId);
+      {/* Use Case Tabs */}
+      {useCases.length > 0 && (
+        <div className="flex items-center gap-1.5 mb-6 overflow-x-auto pb-1 -mx-1 px-1">
+          {useCases.map((uc) => {
+            const isActive = uc.id === effectiveSelectedId;
+            const hasWf = workflowMaps.some(
+              (wm) => wm.useCaseId === uc.id,
+            );
+            const iMap = interactiveMaps.get(uc.id);
             return (
               <button
-                key={wm.useCaseId}
-                onClick={() => {
-                  setSelectedUseCaseId(wm.useCaseId);
-                  setSelectedNode(null);
-                }}
+                key={uc.id}
+                onClick={() => setSelectedUseCaseId(uc.id)}
                 className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap border ${
                   isActive
                     ? "bg-[#02a2fd]/10 text-[#02a2fd] border-[#02a2fd]/30 shadow-sm"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted/80 border-transparent"
                 }`}
               >
-                {wm.useCaseName || wm.useCaseId}
+                {uc.name}
+                {!hasWf && (
+                  <span className="ml-1.5 text-xs text-muted-foreground">
+                    (no workflow)
+                  </span>
+                )}
                 {iMap?.isUserModified && (
                   <span className="ml-1.5 text-amber-500 text-xs">*</span>
                 )}
@@ -407,139 +413,162 @@ export default function Workflows() {
         </div>
       )}
 
-      {/* Live Metrics Bar */}
-      <MetricsBar metrics={liveMetrics} />
-
-      {/* Workflow Content */}
-      <div className="relative mt-4">
-        {workflowMaps.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-border p-16 text-center">
-            <div className="flex flex-col items-center gap-4">
-              <div
-                className="w-14 h-14 rounded-2xl flex items-center justify-center"
-                style={{ background: "linear-gradient(135deg, #001278, #02a2fd)" }}
+      {/* Selected Use Case Description */}
+      {selectedUseCase && (
+        <div className="mb-6">
+          <div className="flex items-center gap-3 mb-1">
+            <h2 className="text-lg font-bold text-foreground">
+              {selectedUseCase.name}
+            </h2>
+            {selectedUseCase.agenticPattern && (
+              <Badge
+                variant="outline"
+                className="text-xs font-normal"
               >
-                <GitBranch className="w-7 h-7 text-white" />
-              </div>
-              <h3 className="text-lg font-semibold text-foreground">
-                No workflows generated yet
-              </h3>
-              <p className="text-sm text-muted-foreground max-w-md">
-                Click "Generate Workflows" to use AI to create current-state and
-                AI-powered workflow maps from your defined use cases.
-              </p>
-              <Button
-                onClick={() => generateMutation.mutate()}
-                disabled={generateMutation.isPending || useCaseCount === 0}
-                className="mt-2 gap-2 text-white"
-                style={{ background: "linear-gradient(135deg, #001278, #02a2fd)" }}
-              >
-                <Sparkles className={`w-4 h-4 ${generateMutation.isPending ? "animate-pulse" : ""}`} />
-                {generateMutation.isPending
-                  ? `Generating ${useCaseCount} workflows...`
-                  : "Generate Workflows"}
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <div className="flex gap-0">
-            {/* Workflow Canvas */}
-            <div className={`flex-1 ${selectedNode ? "mr-96" : ""} transition-all`}>
-              <div className="rounded-xl border border-border bg-card overflow-hidden" style={{ height: "600px" }}>
-                <WorkflowCanvas
-                  currentNodes={currentNodes}
-                  targetNodes={targetNodes}
-                  onCurrentNodesChange={handleCurrentNodesChange}
-                  onTargetNodesChange={handleTargetNodesChange}
-                  onNodeSelect={setSelectedNode}
-                  metrics={liveMetrics}
-                  isGenerating={generateMutation.isPending}
-                />
-              </div>
-
-              {/* Workflow metadata */}
-              {selectedInteractiveMap && (
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {selectedInteractiveMap.agenticPattern && (
-                    <div className="rounded-xl border border-border bg-card p-4">
-                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                        Agentic Pattern
-                      </h4>
-                      <Badge variant="outline" className="text-xs">
-                        {selectedInteractiveMap.agenticPattern}
-                      </Badge>
-                      {selectedInteractiveMap.patternRationale && (
-                        <p className="text-xs text-muted-foreground mt-2 line-clamp-3">
-                          {selectedInteractiveMap.patternRationale}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                  {selectedInteractiveMap.desiredOutcomes && selectedInteractiveMap.desiredOutcomes.length > 0 && (
-                    <div className="rounded-xl border border-border bg-card p-4">
-                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                        Desired Outcomes
-                      </h4>
-                      <ul className="space-y-1">
-                        {selectedInteractiveMap.desiredOutcomes.map((o, i) => (
-                          <li key={i} className="text-sm text-foreground flex items-start gap-2">
-                            <span className="text-green-500 mt-0.5">&#8226;</span>
-                            {o}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {selectedInteractiveMap.dataTypes && selectedInteractiveMap.dataTypes.length > 0 && (
-                    <div className="rounded-xl border border-border bg-card p-4">
-                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                        Data Types & Integrations
-                      </h4>
-                      <div className="flex flex-wrap gap-1.5">
-                        {selectedInteractiveMap.dataTypes.map((d, i) => (
-                          <Badge key={i} variant="outline" className="text-xs font-normal">{d}</Badge>
-                        ))}
-                        {(selectedInteractiveMap.integrations || []).map((intg, i) => (
-                          <Badge key={`i-${i}`} variant="outline" className="text-xs font-normal">{intg}</Badge>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Node Properties Panel (slide-out) */}
-            {selectedNode && (
-              <NodePropertiesPanel
-                node={selectedNode}
-                onUpdate={handleNodeUpdate}
-                onClose={() => setSelectedNode(null)}
-              />
+                {selectedUseCase.agenticPattern}
+              </Badge>
             )}
           </div>
-        )}
-      </div>
+          {selectedUseCase.description && (
+            <p className="text-sm text-muted-foreground max-w-3xl">
+              {selectedUseCase.description}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Main Content Area */}
+      {hasWorkflowForSelected ? (
+        <div className="space-y-6">
+          {/* Live Metrics Row */}
+          <WorkflowMetricsRow
+            metrics={liveMetrics}
+            currentStepCount={currentNodes.length}
+            targetStepCount={targetNodes.length}
+          />
+
+          {/* Side-by-side Workflow Comparison */}
+          <WorkflowComparison
+            currentNodes={currentNodes}
+            targetNodes={targetNodes}
+            onCurrentChange={(nodes) => {
+              if (!effectiveSelectedId) return;
+              setInteractiveMaps((prev) => {
+                const next = new Map(prev);
+                const existing = next.get(effectiveSelectedId);
+                if (!existing) return next;
+                next.set(effectiveSelectedId, {
+                  ...existing,
+                  currentStateInteractive: nodes,
+                  isUserModified: true,
+                  lastEditedAt: new Date().toISOString(),
+                });
+                return next;
+              });
+            }}
+            onTargetChange={(nodes) => {
+              if (!effectiveSelectedId) return;
+              setInteractiveMaps((prev) => {
+                const next = new Map(prev);
+                const existing = next.get(effectiveSelectedId);
+                if (!existing) return next;
+                next.set(effectiveSelectedId, {
+                  ...existing,
+                  targetStateInteractive: nodes,
+                  isUserModified: true,
+                  lastEditedAt: new Date().toISOString(),
+                });
+                return next;
+              });
+            }}
+          />
+
+          {/* Benefit Summary */}
+          <UseCaseBenefitSummary
+            metrics={liveMetrics}
+            desiredOutcomes={selectedWorkflowMap?.desiredOutcomes || []}
+            dataTypes={selectedWorkflowMap?.dataTypes || []}
+            integrations={selectedWorkflowMap?.integrations || []}
+            primaryKpi={selectedWorkflowMap?.comparisonMetrics?.qualityImprovement?.before ? "Quality Improvement" : undefined}
+            kpiBefore={selectedWorkflowMap?.comparisonMetrics?.qualityImprovement?.before}
+            kpiAfter={selectedWorkflowMap?.comparisonMetrics?.qualityImprovement?.after}
+          />
+        </div>
+      ) : (
+        <div className="rounded-xl border border-dashed border-border p-16 text-center">
+          <div className="flex flex-col items-center gap-4">
+            <div
+              className="w-14 h-14 rounded-2xl flex items-center justify-center"
+              style={{
+                background: "linear-gradient(135deg, #001278, #02a2fd)",
+              }}
+            >
+              <GitBranch className="w-7 h-7 text-white" />
+            </div>
+            {useCaseCount === 0 ? (
+              <>
+                <h3 className="text-lg font-semibold text-foreground">
+                  No use cases defined
+                </h3>
+                <p className="text-sm text-muted-foreground max-w-md">
+                  Go back to Setup to import or add use cases before generating
+                  workflows.
+                </p>
+                <Button
+                  variant="outline"
+                  onClick={() => navigate(`/project/${projectId}`)}
+                  className="mt-2 gap-2"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  Back to Setup
+                </Button>
+              </>
+            ) : (
+              <>
+                <h3 className="text-lg font-semibold text-foreground">
+                  No workflows yet
+                </h3>
+                <p className="text-sm text-muted-foreground max-w-md">
+                  Click "Generate Workflows" to create AI-powered workflow
+                  comparisons for this use case.
+                </p>
+                <Button
+                  onClick={() => generateMutation.mutate()}
+                  disabled={generateMutation.isPending}
+                  className="mt-2 gap-2 text-white"
+                  style={{
+                    background: "linear-gradient(135deg, #001278, #02a2fd)",
+                  }}
+                >
+                  <Sparkles
+                    className={`w-4 h-4 ${generateMutation.isPending ? "animate-pulse" : ""}`}
+                  />
+                  {generateMutation.isPending
+                    ? `Generating ${useCaseCount} workflows...`
+                    : "Generate Workflows"}
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Status indicators */}
       {saveMutation.isPending && (
         <div className="fixed bottom-20 right-6 bg-card border border-border rounded-lg shadow-lg px-4 py-2 flex items-center gap-2 text-sm text-muted-foreground z-50">
-          <Loader2 className="w-4 h-4 animate-spin" style={{ color: "#02a2fd" }} />
+          <Loader2
+            className="w-4 h-4 animate-spin"
+            style={{ color: "#02a2fd" }}
+          />
           Saving...
-        </div>
-      )}
-      {saveMutation.isSuccess && !saveMutation.isPending && (
-        <div className="fixed bottom-20 right-6 bg-green-50 dark:bg-green-950/30 border border-green-500/30 rounded-lg shadow-lg px-4 py-2 flex items-center gap-2 text-sm text-green-600 dark:text-green-400 z-50 animate-in fade-in duration-300">
-          <Save className="w-4 h-4" />
-          Saved successfully
         </div>
       )}
       {(saveMutation.isError || generateMutation.isError) && (
         <div className="fixed bottom-20 right-6 bg-destructive/10 border border-destructive/30 rounded-lg shadow-lg px-4 py-2 flex items-center gap-2 text-sm text-destructive z-50">
           <AlertCircle className="w-4 h-4" />
           {generateMutation.isError
-            ? "Failed to generate workflows. Please try again."
-            : "Failed to save. Please try again."}
+            ? "Failed to generate workflows. Try again."
+            : "Failed to save. Try again."}
         </div>
       )}
 
@@ -547,19 +576,20 @@ export default function Workflows() {
       <div className="flex items-center justify-between mt-10 pt-6 border-t border-border">
         <Button
           variant="outline"
-          onClick={() => navigate(`/project/${id}/benefits`)}
+          onClick={() => navigate(`/project/${projectId}`)}
           className="gap-2"
         >
           <ChevronLeft className="w-4 h-4" />
-          Benefits
+          Setup
         </Button>
         <Button
-          onClick={handleNext}
+          onClick={() => navigate(`/project/${projectId}/dashboard`)}
           className="gap-2 text-white"
-          style={{ background: "linear-gradient(135deg, #001278, #02a2fd)" }}
-          disabled={markComplete.isPending}
+          style={{
+            background: "linear-gradient(135deg, #001278, #02a2fd)",
+          }}
         >
-          Readiness
+          Dashboard
           <ChevronRight className="w-4 h-4" />
         </Button>
       </div>

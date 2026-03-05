@@ -1,80 +1,26 @@
 import { ReactNode } from "react";
 import { useLocation } from "wouter";
 import ThemeToggle from "./ThemeToggle";
-import StepperNav, { getStepFromPath } from "./StepperNav";
-import AIAssistant from "./AIAssistant";
 import { Home } from "lucide-react";
-
-const STEP_SECTIONS = [
-  "upload", "themes", "functions", "friction",
-  "usecases", "benefits", "workflows", "readiness", "matrix", "dashboard",
-];
-
-const STEP_PROMPTS: Record<string, string[]> = {
-  themes: [
-    "Help me improve this target state description",
-    "Suggest a secondary driver for this theme",
-    "Validate the strategic alignment of these themes",
-  ],
-  functions: [
-    "Suggest a realistic target for this KPI",
-    "Help me describe this business function better",
-  ],
-  friction: [
-    "Help describe this friction point",
-    "Suggest severity assessment rationale",
-  ],
-  usecases: [
-    "Recommend the best agentic pattern for this use case",
-    "Improve this use case description",
-    "Explain why this AI primitive is relevant",
-  ],
-  benefits: [
-    "Validate these financial assumptions",
-    "Explain the benefit calculation methodology",
-  ],
-  workflows: [
-    "Suggest improvements to this workflow",
-    "Explain what changes AI introduces to this process",
-  ],
-  readiness: [
-    "Help assess data readiness for this use case",
-    "Suggest ways to improve organizational readiness",
-  ],
-  matrix: [
-    "Explain the prioritization methodology",
-    "Recommend which use cases to implement first",
-  ],
-  dashboard: [
-    "Write an executive summary of these findings",
-    "Suggest key recommendations based on this analysis",
-  ],
-};
 
 interface LayoutProps {
   children: ReactNode;
   projectId?: string;
   companyName?: string;
-  completedSteps?: number[];
-  showStepper?: boolean;
-  aiContext?: any;
+  activeTab?: "setup" | "workshop" | "dashboard";
 }
 
 export default function Layout({
   children,
   projectId,
   companyName,
-  completedSteps,
-  showStepper = true,
-  aiContext,
+  activeTab,
 }: LayoutProps) {
-  const [location, navigate] = useLocation();
-  const currentStep = getStepFromPath(location);
-  const currentSection = STEP_SECTIONS[currentStep] || "general";
+  const [, navigate] = useLocation();
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header — frosted glass */}
+      {/* Header */}
       <header className="glass-header bg-card/80 border-b border-border/50 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -122,26 +68,33 @@ export default function Layout({
         </div>
       </header>
 
-      {/* Stepper Navigation */}
-      {showStepper && projectId && (
-        <StepperNav
-          projectId={projectId}
-          currentStep={currentStep}
-          completedSteps={completedSteps}
-        />
+      {/* Tab Navigation — only show within a project */}
+      {projectId && activeTab && (
+        <nav className="bg-card/50 border-b border-border/30">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 flex gap-1">
+            {[
+              { key: "setup" as const, label: "Setup", path: `/project/${projectId}` },
+              { key: "workshop" as const, label: "Workshop", path: `/project/${projectId}/workshop` },
+              { key: "dashboard" as const, label: "Dashboard", path: `/project/${projectId}/dashboard` },
+            ].map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => navigate(tab.path)}
+                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === tab.key
+                    ? "border-[#02a2fd] text-[#02a2fd]"
+                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </nav>
       )}
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 py-6">{children}</main>
-
-      {/* AI Assistant - shown on project pages */}
-      {projectId && showStepper && (
-        <AIAssistant
-          section={currentSection}
-          context={aiContext || { companyName, step: currentSection }}
-          suggestedPrompts={STEP_PROMPTS[currentSection] || []}
-        />
-      )}
     </div>
   );
 }
