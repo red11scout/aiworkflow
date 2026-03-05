@@ -1,24 +1,43 @@
 /**
  * Vercel Serverless Entry Point
  *
- * Wraps the Express app from createApp() as a Vercel serverless function.
- * The Express instance is cached across invocations for warm starts.
+ * Creates an Express app with all API routes, cached across warm invocations.
  */
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { createApp } from "../server/index";
-import type { Express } from "express";
+import express from "express";
+import { createServer } from "http";
 
-let cachedApp: Express | null = null;
+let cachedApp: ReturnType<typeof express> | null = null;
 
-async function getApp(): Promise<Express> {
-  if (!cachedApp) {
-    const { app } = await createApp();
-    cachedApp = app;
-  }
-  return cachedApp;
+async function getApp() {
+  if (cachedApp) return cachedApp;
+
+  const app = express();
+  const httpServer = createServer(app);
+
+  app.use(express.json({ limit: "10mb" }));
+  app.use(express.urlencoded({ extended: false }));
+
+  const { registerRoutes } = await import("../server/routes");
+  await registerRoutes(httpServer, app);
+
+  app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error("Express error:", err);
+    const status = err.status || err.statusCode || 500;
+    const message = err.message || "Internal Server Error";
+    res.status(status).json({ message });
+  });
+
+  cachedApp = app;
+  return app;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const app = await getApp();
-  return app(req, res);
+  try {
+    const app = await getApp();
+    return app(req, res);
+  } catch (err: any) {
+    console.error("Handler initialization error:", err);
+    res.status(500).json({ message: "Server initialization failed", error: err.message });
+  }
 }
