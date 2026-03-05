@@ -23,6 +23,21 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "vendor-react": ["react", "react-dom"],
+          "vendor-ui": [
+            "lucide-react",
+            "class-variance-authority",
+            "clsx",
+            "tailwind-merge",
+          ],
+          "vendor-charts": ["recharts"],
+          "vendor-flow": ["@xyflow/react"],
+        },
+      },
+    },
   },
   server: {
     host: "0.0.0.0",

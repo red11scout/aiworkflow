@@ -2,8 +2,14 @@ import { useState, useMemo } from "react";
 import { useLocation, useParams } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import { formatCurrency, formatCurrencyFull, parseCurrencyString } from "@/lib/utils";
-import { generatePDFBlob } from "@/components/pdf/PDFReport";
+import { formatCurrency, formatNumber } from "@/lib/utils";
+import {
+  computeWorkflowMetrics,
+  aggregateEnrichedSystemsSummary,
+} from "@/lib/workflow-metrics";
+import { SystemsHeatMap } from "@/components/dashboard/SystemsHeatMap";
+// PDF loaded dynamically to keep it out of main bundle
+// import { generatePDFBlob } from "@/components/pdf/PDFReport";
 import Layout from "@/components/Layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,93 +27,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import type { WorkflowMap } from "@shared/types";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-interface UseCaseRow {
-  useCaseId: string;
-  useCaseName: string;
-  currentHours: number;
-  targetHours: number;
-  hoursSaved: number;
-  costSaved: number;
-  automationPct: number;
-  status: string;
-}
-
-function parseDurationToHours(duration: string): number {
-  if (!duration || duration === "--") return 0;
-  const lower = duration.toLowerCase().trim();
-
-  // "2 hours", "45 minutes", "5 min", "3 days", etc.
-  const num = parseFloat(lower.replace(/[^0-9.]/g, ""));
-  if (isNaN(num)) return 0;
-
-  if (lower.includes("day")) return num * 8;
-  if (lower.includes("hour") || lower.includes("hr")) return num;
-  if (lower.includes("min")) return num / 60;
-  if (lower.includes("sec")) return num / 3600;
-  if (lower.includes("week")) return num * 40;
-
-  // Default to hours if no unit
-  return num;
-}
-
-function computeWorkflowMetrics(wf: WorkflowMap): UseCaseRow {
-  const currentNodes = wf.currentState || [];
-  const targetNodes = wf.targetState || [];
-
-  // Sum durations across all nodes
-  let currentHours = 0;
-  let targetHours = 0;
-  let totalNodes = targetNodes.length;
-  let aiEnabledNodes = 0;
-
-  for (const node of currentNodes) {
-    currentHours += parseDurationToHours(node.duration);
-  }
-  for (const node of targetNodes) {
-    targetHours += parseDurationToHours(node.duration);
-    if ((node as any).isAIEnabled) aiEnabledNodes++;
-  }
-
-  const hoursSaved = Math.max(0, currentHours - targetHours);
-  const automationPct = totalNodes > 0 ? (aiEnabledNodes / totalNodes) * 100 : 0;
-
-  // Cost savings from comparisonMetrics if available
-  let costSaved = 0;
-  const cm = wf.comparisonMetrics;
-  if (cm?.costReduction) {
-    const before = parseCurrencyString(cm.costReduction.before || "0");
-    const after = parseCurrencyString(cm.costReduction.after || "0");
-    costSaved = Math.max(0, before - after);
-  }
-
-  // Determine status from comparison metrics improvement %
-  let status = "Mapped";
-  if (cm?.timeReduction?.improvement) {
-    const impStr = cm.timeReduction.improvement.replace(/[^0-9.]/g, "");
-    const impNum = parseFloat(impStr);
-    if (!isNaN(impNum)) {
-      if (impNum >= 70) status = "High Impact";
-      else if (impNum >= 40) status = "Medium Impact";
-      else status = "Low Impact";
-    }
-  }
-
-  return {
-    useCaseId: wf.useCaseId,
-    useCaseName: wf.useCaseName,
-    currentHours,
-    targetHours,
-    hoursSaved,
-    costSaved,
-    automationPct,
-    status,
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -149,6 +68,11 @@ export default function Dashboard() {
     return { totalHoursSaved, totalCostSaved, avgAutomation, useCaseCount };
   }, [rows]);
 
+  // Cross-use-case systems/data/integrations aggregation (enriched)
+  const enrichedSummary = useMemo(() => {
+    return aggregateEnrichedSystemsSummary(workflowMaps);
+  }, [workflowMaps]);
+
   // -----------------------------------------------------------------------
   // Export handlers
   // -----------------------------------------------------------------------
@@ -157,6 +81,7 @@ export default function Dashboard() {
     if (!scenario) return;
     setPdfLoading(true);
     try {
+      const { generatePDFBlob } = await import("@/components/pdf/PDFReport");
       const blob = await generatePDFBlob({
         companyName,
         generatedAt: new Date().toLocaleDateString(),
@@ -211,12 +136,16 @@ export default function Dashboard() {
 
   async function handleCreateShareLink() {
     if (!projectId) return;
+    if (!scenario?.id) {
+      toast.error("No active scenario to share. Generate workflows first.");
+      return;
+    }
     setShareLoading(true);
     try {
       const res = await apiRequest(
         "POST",
         `/api/projects/${projectId}/share`,
-        { scenarioId: scenario?.id },
+        { scenarioId: scenario.id },
       );
       const data = await res.json();
       const url = `${window.location.origin}/shared/${data.shareCode}`;
@@ -295,7 +224,7 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-foreground">
-                {totals.totalHoursSaved.toFixed(1)}
+                {formatNumber(Math.round(totals.totalHoursSaved))}
               </div>
               <p className="text-xs text-muted-foreground">
                 hours per workflow cycle
@@ -417,13 +346,13 @@ export default function Dashboard() {
                           {row.useCaseName}
                         </td>
                         <td className="py-3 px-3 text-right text-muted-foreground tabular-nums">
-                          {row.currentHours.toFixed(1)}
+                          {Math.round(row.currentHours).toLocaleString()}
                         </td>
                         <td className="py-3 px-3 text-right text-muted-foreground tabular-nums">
-                          {row.targetHours.toFixed(1)}
+                          {Math.round(row.targetHours).toLocaleString()}
                         </td>
                         <td className="py-3 px-3 text-right font-medium text-[#36bf78] tabular-nums">
-                          {row.hoursSaved.toFixed(1)}
+                          {Math.round(row.hoursSaved).toLocaleString()}
                         </td>
                         <td className="py-3 px-3 text-right font-medium text-[#36bf78] tabular-nums">
                           {formatCurrency(row.costSaved)}
@@ -452,13 +381,13 @@ export default function Dashboard() {
                     <tr className="border-t-2 border-border bg-muted/30 font-semibold">
                       <td className="py-3 px-3 text-foreground">Total</td>
                       <td className="py-3 px-3 text-right tabular-nums">
-                        {rows.reduce((s, r) => s + r.currentHours, 0).toFixed(1)}
+                        {Math.round(rows.reduce((s, r) => s + r.currentHours, 0)).toLocaleString()}
                       </td>
                       <td className="py-3 px-3 text-right tabular-nums">
-                        {rows.reduce((s, r) => s + r.targetHours, 0).toFixed(1)}
+                        {Math.round(rows.reduce((s, r) => s + r.targetHours, 0)).toLocaleString()}
                       </td>
                       <td className="py-3 px-3 text-right text-[#36bf78] tabular-nums">
-                        {totals.totalHoursSaved.toFixed(1)}
+                        {Math.round(totals.totalHoursSaved).toLocaleString()}
                       </td>
                       <td className="py-3 px-3 text-right text-[#36bf78] tabular-nums">
                         {formatCurrency(totals.totalCostSaved)}
@@ -474,6 +403,11 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
+
+        {/* Systems, Data & Integrations — Heat Map + Insights */}
+        {enrichedSummary.enrichedSystems.length > 0 && (
+          <SystemsHeatMap summary={enrichedSummary} variant="dashboard" />
+        )}
 
         {/* Export Section */}
         <Card>
@@ -535,10 +469,10 @@ export default function Dashboard() {
         <div className="flex justify-start pb-6">
           <Button
             variant="outline"
-            onClick={() => navigate(`/project/${projectId}/workshop`)}
+            onClick={() => navigate(`/project/${projectId}/review`)}
           >
             <ArrowLeft className="w-4 h-4 mr-2" />
-            Workshop
+            Review
           </Button>
         </div>
       </div>

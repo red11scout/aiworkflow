@@ -138,8 +138,8 @@ export async function registerRoutes(server: Server, app: Express) {
     const project = await storage.getProject(req.params.id);
     if (!project) return res.status(404).json({ message: "Project not found" });
 
-    const activeScenario = await storage.getActiveScenario(project.id);
     const allScenarios = await storage.getScenariosByProject(project.id);
+    const activeScenario = allScenarios.find((s) => s.isActive) || null;
 
     res.json({ ...project, activeScenario, scenarios: allScenarios });
   });
@@ -331,6 +331,7 @@ export async function registerRoutes(server: Server, app: Express) {
       priorities: "priorities",
       workflow_maps: "workflowMaps",
       executive_summary: "executiveSummary",
+      workforce_params: "workforceParams",
     };
 
     const stepNumMap: Record<number, string> = {
@@ -447,6 +448,99 @@ export async function registerRoutes(server: Server, app: Express) {
   });
 
 
+  // AI workforce research — uses Claude to estimate workforce parameters for a company
+  app.post("/api/ai/research-workforce", async (req, res) => {
+    const { companyName, industry } = req.body;
+
+    if (!companyName) {
+      return res.status(400).json({ message: "Missing companyName" });
+    }
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      return res.status(503).json({
+        message: "AI assistant not configured. Set ANTHROPIC_API_KEY.",
+      });
+    }
+
+    try {
+      const { default: Anthropic } = await import("@anthropic-ai/sdk");
+      const client = new Anthropic({ apiKey });
+
+      const response = await client.messages.create({
+        model: "claude-sonnet-4-5-20250929",
+        max_tokens: 1024,
+        system: `You are a workforce data researcher. Given a company name and industry, provide reasonable estimates for their workforce parameters based on publicly available information and industry benchmarks. If you can find specific data about the company, use it. Otherwise, provide realistic estimates based on the industry and company size class.
+
+Return ONLY valid JSON with no markdown or code blocks. The JSON must have this exact structure:
+{
+  "totalEmployees": <number>,
+  "avgHourlyRate": <number>,
+  "burdenMultiplier": <number, typically 1.3-1.5>,
+  "annualRevenue": <number>,
+  "industry": "<string>",
+  "workHoursPerYear": <number, typically 2080>
+}`,
+        messages: [
+          {
+            role: "user",
+            content: `Research workforce parameters for: ${companyName}${industry ? ` (Industry: ${industry})` : ""}
+
+Provide your best estimates for:
+1. Total number of employees
+2. Average hourly rate (fully loaded with benefits)
+3. Burden multiplier (benefits/overhead on top of base salary)
+4. Annual revenue
+5. Industry classification
+6. Standard work hours per year
+
+Use publicly available data if possible. If the company is not well-known, estimate based on the industry provided.`,
+          },
+        ],
+      });
+
+      const rawText = response.content[0].type === "text" ? response.content[0].text : "";
+      const text = rawText
+        .replace(/^```(?:json)?\s*\n?/gm, "")
+        .replace(/\n?```\s*$/gm, "")
+        .trim();
+
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        return res.status(500).json({ message: "Failed to parse AI response" });
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      res.json(parsed);
+    } catch (err: any) {
+      console.error("Workforce research error:", err.message);
+      res.status(500).json({ message: `Workforce research error: ${err.message}` });
+    }
+  });
+
+  // Concurrency-limited parallel execution
+  async function runWithConcurrency<T>(
+    tasks: (() => Promise<T>)[],
+    concurrency: number,
+  ): Promise<T[]> {
+    const results: T[] = new Array(tasks.length);
+    let nextIndex = 0;
+
+    async function runNext(): Promise<void> {
+      while (nextIndex < tasks.length) {
+        const index = nextIndex++;
+        results[index] = await tasks[index]();
+      }
+    }
+
+    const workers = Array.from(
+      { length: Math.min(concurrency, tasks.length) },
+      () => runNext(),
+    );
+    await Promise.all(workers);
+    return results;
+  }
+
   // AI workflow generation — batch generates workflows for ALL use cases in a scenario
   app.post("/api/ai/generate-workflow", async (req, res) => {
     const { scenarioId, useCaseId, currentStateContext } = req.body;
@@ -483,10 +577,19 @@ export async function registerRoutes(server: Server, app: Express) {
       const { default: Anthropic } = await import("@anthropic-ai/sdk");
       const client = new Anthropic({ apiKey });
 
-      const workflowMaps: WorkflowMap[] = [];
-      const debugLog: string[] = [];
+      const CONCURRENCY = 3;
 
-      for (const uc of useCases) {
+      const emptyMetricsFallback = {
+        timeReduction: { before: "--", after: "--", improvement: "--" },
+        costReduction: { before: "--", after: "--", improvement: "--" },
+        qualityImprovement: { before: "--", after: "--", improvement: "--" },
+        throughputIncrease: { before: "--", after: "--", improvement: "--" },
+      };
+
+      const tasks = useCases.map((uc: any) => async () => {
+        const localDebug: string[] = [];
+
+        try {
         const matchedFP = frictionPoints.find(
           (fp: any) => fp.frictionPoint === uc.targetFriction,
         );
@@ -501,10 +604,15 @@ Generate the target state that optimizes this specific current-state workflow.`
           : `
 Generate BOTH current state (5-8 steps showing the manual/legacy process) and target state.`;
 
-        const response = await client.messages.create({
-          model: "claude-sonnet-4-5-20250929",
-          max_tokens: 8192,
-          system: `You are an expert AI workflow architect specializing in enterprise process transformation. Generate detailed workflow visualizations comparing current manual processes with AI-powered alternatives.
+        // Retry with exponential backoff for transient API errors
+        const MAX_RETRIES = 2;
+        let response: any;
+        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+          try {
+            response = await client.messages.create({
+              model: "claude-sonnet-4-5-20250929",
+              max_tokens: 12000,
+              system: `You are an expert AI workflow architect specializing in enterprise process transformation. Generate detailed workflow visualizations comparing current manual processes with AI-powered alternatives.
 
 CRITICAL REQUIREMENTS:
 1. Current State: 5-8 detailed steps showing the manual/legacy process with realistic durations, bottlenecks, and pain points
@@ -567,7 +675,13 @@ Return JSON with this EXACT structure:
       "painPoints": ["Pain point description"],
       "frictionType": "process",
       "employeeCount": 3, "avgHourlyCost": 75,
-      "hoursPerTask": 2, "tasksPerMonth": 100
+      "hoursPerTask": 2, "tasksPerMonth": 100,
+      "stepCategory": "working",
+      "department": "Operations",
+      "isDepartmentHandoff": false,
+      "outputType": "report",
+      "systemDetails": [{"name": "McLeod TMS", "dataType": "structured", "integrationAvailable": true, "integrationType": "api"}],
+      "burdenMultiplier": 1.35
     }
   ],
   "targetState": [
@@ -582,7 +696,14 @@ Return JSON with this EXACT structure:
       "aiCapabilities": ["NLP", "Pattern Recognition"],
       "automationLevel": "full",
       "employeeCount": 1, "avgHourlyCost": 0,
-      "hoursPerTask": 0.08, "tasksPerMonth": 100
+      "hoursPerTask": 0.08, "tasksPerMonth": 100,
+      "stepCategory": "working",
+      "department": "Operations",
+      "outputType": "data_entry",
+      "aiApproach": "single_agent",
+      "desiredAIOutputType": "Structured data extraction",
+      "systemDetails": [{"name": "AI Pipeline", "dataType": "unstructured", "integrationAvailable": true, "integrationType": "api"}],
+      "burdenMultiplier": 1.35
     },
     {
       "id": "ts-hitl-1", "stepNumber": 3, "name": "Review & Approve Output",
@@ -594,6 +715,11 @@ Return JSON with this EXACT structure:
       "isAIEnabled": false, "isHumanInTheLoop": true,
       "aiCapabilities": [],
       "automationLevel": "manual",
+      "stepCategory": "review",
+      "department": "Operations",
+      "outputType": "approval",
+      "epochCategory": "operational",
+      "hitlDetails": "Quality gate: verify AI output accuracy before downstream consumption",
       "hitlCheckpoint": {
         "id": "hitl-1",
         "epochCategory": "operational",
@@ -619,10 +745,29 @@ IMPORTANT:
 - Include employeeCount, avgHourlyCost, hoursPerTask, tasksPerMonth on EVERY node for live cost calculations.
 - At least 1 target-state node MUST have isHumanInTheLoop: true with a hitlCheckpoint object.
 - Tag bottleneck current-state nodes with a frictionType.
-- The COMPLETE JSON must fit within 6000 tokens. Be efficient.`,
+- Include stepCategory on EVERY node: "working", "waiting_approval", "waiting_feedback", "waiting_external", "waiting_customer", "rework", "handoff", or "review". This identifies lag time where AI can reduce wait.
+- Include department on every node to show cross-functional handoffs.
+- Include outputType on every node: "report", "document", "decision", "notification", "data_entry", "email", "dashboard", "approval", "other".
+- Include systemDetails array on every node with name, dataType, integrationAvailable, integrationType.
+- On target-state AI nodes, include aiApproach: "primitive", "single_agent", or "multi_agent" and desiredAIOutputType.
+- Set burdenMultiplier to 1.35 on every node (standard benefits loading).
+- Mark department handoffs with isDepartmentHandoff: true when work transitions between departments.
+- The COMPLETE JSON must fit within 8000 tokens. Be efficient.`,
             },
           ],
         });
+            break; // Success — exit retry loop
+          } catch (apiErr: any) {
+            const retryable = apiErr.status === 429 || apiErr.status === 529 || apiErr.status === 503;
+            if (retryable && attempt < MAX_RETRIES) {
+              const delay = (attempt + 1) * 5000; // 5s, 10s
+              localDebug.push(`API error ${apiErr.status} for "${uc.name}", retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+              await new Promise(r => setTimeout(r, delay));
+            } else {
+              throw apiErr; // Non-retryable or exhausted retries — let outer catch handle it
+            }
+          }
+        }
 
         const rawText =
           response.content[0].type === "text" ? response.content[0].text : "";
@@ -633,7 +778,7 @@ IMPORTANT:
           .replace(/\n?```\s*$/gm, "")
           .trim();
 
-        debugLog.push(`Raw response length: ${rawText.length}, stripped: ${text.length}`);
+        localDebug.push(`Raw response length: ${rawText.length}, stripped: ${text.length}`);
 
         const jsonMatch = text.match(/\{[\s\S]*\}/);
 
@@ -651,7 +796,7 @@ IMPORTANT:
             workflow = JSON.parse(jsonStr);
           } catch {
             // Attempt to repair truncated JSON by closing open brackets
-            debugLog.push("Initial parse failed — attempting JSON repair");
+            localDebug.push("Initial parse failed — attempting JSON repair");
             let repaired = jsonStr;
             // Count unclosed brackets
             let braces = 0, brackets = 0;
@@ -673,16 +818,16 @@ IMPORTANT:
             for (let i = 0; i < braces; i++) repaired += "}";
             try {
               workflow = JSON.parse(repaired);
-              debugLog.push("JSON repair succeeded");
+              localDebug.push("JSON repair succeeded");
             } catch (e2: any) {
-              debugLog.push(`JSON repair also failed: ${e2.message}`);
+              localDebug.push(`JSON repair also failed: ${e2.message}`);
               workflow = null;
             }
           }
 
           if (workflow) {
-            debugLog.push(`Parsed keys: ${Object.keys(workflow).join(", ")}`);
-            debugLog.push(`currentState: ${(workflow.currentState || []).length} nodes, targetState: ${(workflow.targetState || []).length} nodes`);
+            localDebug.push(`Parsed keys: ${Object.keys(workflow).join(", ")}`);
+            localDebug.push(`currentState: ${(workflow.currentState || []).length} nodes, targetState: ${(workflow.targetState || []).length} nodes`);
 
             const currentNodes = (workflow.currentState || []).map((node: any, i: number) => ({
               ...node,
@@ -693,21 +838,43 @@ IMPORTANT:
               position: { x: 250, y: i * 150 },
             }));
 
-            workflowMaps.push({
-              useCaseId: uc.id,
-              useCaseName: uc.name,
-              agenticPattern: uc.agenticPattern || "",
-              patternRationale: uc.patternRationale || "",
-              currentState: currentNodes,
-              targetState: targetNodes,
-              comparisonMetrics: workflow.comparisonMetrics || emptyMetrics,
-              desiredOutcomes: uc.desiredOutcomes || [],
-              dataTypes: uc.dataTypes || [],
-              integrations: uc.integrations || [],
-            });
+            return {
+              workflowMap: {
+                useCaseId: uc.id,
+                useCaseName: uc.name,
+                agenticPattern: uc.agenticPattern || "",
+                patternRationale: uc.patternRationale || "",
+                currentState: currentNodes,
+                targetState: targetNodes,
+                comparisonMetrics: workflow.comparisonMetrics || emptyMetrics,
+                desiredOutcomes: uc.desiredOutcomes || [],
+                dataTypes: uc.dataTypes || [],
+                integrations: uc.integrations || [],
+              } as WorkflowMap,
+              debugEntries: localDebug,
+            };
           } else {
             // Parse and repair both failed
-            workflowMaps.push({
+            return {
+              workflowMap: {
+                useCaseId: uc.id,
+                useCaseName: uc.name,
+                agenticPattern: uc.agenticPattern || "",
+                patternRationale: uc.patternRationale || "",
+                currentState: [],
+                targetState: [],
+                comparisonMetrics: emptyMetrics,
+                desiredOutcomes: uc.desiredOutcomes || [],
+                dataTypes: uc.dataTypes || [],
+                integrations: uc.integrations || [],
+              } as WorkflowMap,
+              debugEntries: localDebug,
+            };
+          }
+        } else {
+          localDebug.push(`NO JSON FOUND in response. Text starts with: ${text.substring(0, 200)}`);
+          return {
+            workflowMap: {
               useCaseId: uc.id,
               useCaseName: uc.name,
               agenticPattern: uc.agenticPattern || "",
@@ -718,28 +885,40 @@ IMPORTANT:
               desiredOutcomes: uc.desiredOutcomes || [],
               dataTypes: uc.dataTypes || [],
               integrations: uc.integrations || [],
-            });
-          }
-        } else {
-          debugLog.push(`NO JSON FOUND in response. Text starts with: ${text.substring(0, 200)}`);
-          workflowMaps.push({
-            useCaseId: uc.id,
-            useCaseName: uc.name,
-            agenticPattern: uc.agenticPattern || "",
-            patternRationale: uc.patternRationale || "",
-            currentState: [],
-            targetState: [],
-            comparisonMetrics: emptyMetrics,
-            desiredOutcomes: uc.desiredOutcomes || [],
-            dataTypes: uc.dataTypes || [],
-            integrations: uc.integrations || [],
-          });
+            } as WorkflowMap,
+            debugEntries: localDebug,
+          };
         }
+        } catch (taskErr: any) {
+          // Catch per-task errors (API timeouts, rate limits, network errors)
+          // so one failure doesn't crash the entire batch
+          localDebug.push(`TASK ERROR for "${uc.name}": ${taskErr.message}`);
+          console.error(`Workflow task error for "${uc.name}":`, taskErr.message);
+          return {
+            workflowMap: {
+              useCaseId: uc.id,
+              useCaseName: uc.name,
+              agenticPattern: uc.agenticPattern || "",
+              patternRationale: uc.patternRationale || "",
+              currentState: [],
+              targetState: [],
+              comparisonMetrics: emptyMetricsFallback,
+              desiredOutcomes: uc.desiredOutcomes || [],
+              dataTypes: uc.dataTypes || [],
+              integrations: uc.integrations || [],
+            } as WorkflowMap,
+            debugEntries: localDebug,
+          };
+        }
+      });
 
-        // Rate limit: 500ms between API calls
-        if (useCases.indexOf(uc) < useCases.length - 1) {
-          await new Promise((r) => setTimeout(r, 500));
-        }
+      const results = await runWithConcurrency(tasks, CONCURRENCY);
+
+      const workflowMaps: WorkflowMap[] = [];
+      const debugLog: string[] = [];
+      for (const result of results) {
+        workflowMaps.push(result.workflowMap);
+        debugLog.push(...result.debugEntries);
       }
 
       // Debug info for troubleshooting
@@ -787,15 +966,21 @@ IMPORTANT:
   // =====================================================================
 
   app.post("/api/projects/:id/share", async (req, res) => {
-    const { scenarioId } = req.body;
+    let { scenarioId } = req.body;
     const project = await storage.getProject(req.params.id);
     if (!project)
       return res.status(404).json({ message: "Project not found" });
 
+    // Fall back to active scenario if no scenarioId provided
+    if (!scenarioId) {
+      const active = await storage.getActiveScenario(project.id);
+      scenarioId = active?.id || "";
+    }
+
     const code = nanoid(10);
     const link = await storage.createShareLink(
       project.id,
-      scenarioId || "",
+      scenarioId,
       code,
     );
     res.json({ shareCode: code, link });
@@ -896,8 +1081,110 @@ IMPORTANT:
     if (!scenario)
       return res.status(404).json({ message: "Scenario not found" });
 
+    // Compute workflow dashboard metrics for export
+    const wfMaps = (scenario.workflowMaps as any[]) || [];
+
+    function parseDurToHrs(duration: string): number {
+      if (!duration || duration === "--") return 0;
+      const lower = duration.toLowerCase().trim();
+      const num = parseFloat(lower.replace(/[^0-9.]/g, ""));
+      if (isNaN(num)) return 0;
+      if (lower.includes("day")) return num * 8;
+      if (lower.includes("hour") || lower.includes("hr")) return num;
+      if (lower.includes("min")) return num / 60;
+      if (lower.includes("sec")) return num / 3600;
+      if (lower.includes("week")) return num * 40;
+      return num;
+    }
+
+    function parseCurr(value: string): number {
+      if (!value) return 0;
+      let clean = value.replace(/[,$\s]/g, "");
+      clean = clean.replace(/\/(yr|year|mo|month|quarter|qtr|week|day|annual)$/i, "");
+      clean = clean.replace(/per\s*(year|month|quarter|week|day|annum)$/i, "");
+      if (/m$/i.test(clean)) return parseFloat(clean) * 1_000_000;
+      if (/k$/i.test(clean)) return parseFloat(clean) * 1_000;
+      if (/b$/i.test(clean)) return parseFloat(clean) * 1_000_000_000;
+      return parseFloat(clean) || 0;
+    }
+
+    const perUseCaseMetrics = wfMaps.map((wf: any) => {
+      let currentHours = 0, targetHours = 0, aiEnabled = 0;
+      for (const n of (wf.currentState || [])) currentHours += parseDurToHrs(n.duration);
+      for (const n of (wf.targetState || [])) {
+        targetHours += parseDurToHrs(n.duration);
+        if (n.isAIEnabled) aiEnabled++;
+      }
+      const totalTarget = (wf.targetState || []).length;
+      let costSaved = 0;
+      if (wf.comparisonMetrics?.costReduction) {
+        const before = parseCurr(wf.comparisonMetrics.costReduction.before || "0");
+        const after = parseCurr(wf.comparisonMetrics.costReduction.after || "0");
+        costSaved = Math.max(0, before - after);
+      }
+      return {
+        useCaseId: wf.useCaseId,
+        useCaseName: wf.useCaseName,
+        currentHours: Math.round(currentHours),
+        targetHours: Math.round(targetHours),
+        hoursSaved: Math.round(Math.max(0, currentHours - targetHours)),
+        costSaved,
+        automationPct: totalTarget > 0 ? Math.round((aiEnabled / totalTarget) * 100) : 0,
+      };
+    });
+
+    const dashboardMetrics = {
+      totalHoursSaved: perUseCaseMetrics.reduce((s: number, r: any) => s + r.hoursSaved, 0),
+      totalCostSaved: perUseCaseMetrics.reduce((s: number, r: any) => s + r.costSaved, 0),
+      avgAutomation: perUseCaseMetrics.length > 0
+        ? Math.round(perUseCaseMetrics.reduce((s: number, r: any) => s + r.automationPct, 0) / perUseCaseMetrics.length)
+        : 0,
+      useCaseCount: perUseCaseMetrics.length,
+      perUseCase: perUseCaseMetrics,
+    };
+
+    // Aggregate systems, integration types, and data types across workflows
+    const sysMap = new Map<string, Set<string>>();
+    const intTypeCount = new Map<string, number>();
+    const dataTypeCount = new Map<string, number>();
+
+    for (const wf of wfMaps) {
+      const allNodes = [...(wf.currentState || []), ...(wf.targetState || [])];
+      for (const node of allNodes) {
+        for (const sys of (node.systems || [])) {
+          if (!sys) continue;
+          if (!sysMap.has(sys)) sysMap.set(sys, new Set());
+          sysMap.get(sys)!.add(wf.useCaseName);
+        }
+        for (const sd of (node.systemDetails || [])) {
+          if (sd.name) {
+            if (!sysMap.has(sd.name)) sysMap.set(sd.name, new Set());
+            sysMap.get(sd.name)!.add(wf.useCaseName);
+          }
+          if (sd.integrationType) intTypeCount.set(sd.integrationType, (intTypeCount.get(sd.integrationType) || 0) + 1);
+          if (sd.dataType) dataTypeCount.set(sd.dataType, (dataTypeCount.get(sd.dataType) || 0) + 1);
+        }
+      }
+      for (const dt of (wf.dataTypes || [])) {
+        if (dt) dataTypeCount.set(dt, (dataTypeCount.get(dt) || 0) + 1);
+      }
+      for (const ig of (wf.integrations || [])) {
+        if (!ig) continue;
+        if (!sysMap.has(ig)) sysMap.set(ig, new Set());
+        sysMap.get(ig)!.add(wf.useCaseName);
+      }
+    }
+
+    const systemsSummary = {
+      systems: [...sysMap.entries()]
+        .map(([name, ucs]) => ({ name, useCaseCount: ucs.size, useCases: [...ucs] }))
+        .sort((a, b) => b.useCaseCount - a.useCaseCount),
+      integrationTypes: Object.fromEntries(intTypeCount),
+      dataTypes: Object.fromEntries(dataTypeCount),
+    };
+
     const exportData = {
-      exportVersion: "2.0",
+      exportVersion: "2.1",
       exportedAt: new Date().toISOString(),
       source: "BlueAlly AI Workflow Orchestration",
       company: {
@@ -921,6 +1208,9 @@ IMPORTANT:
         scenarioAnalysis: scenario.scenarioAnalysis || null,
         workflowMaps: scenario.workflowMaps || [],
       },
+      dashboardMetrics,
+      systemsSummary,
+      workforceParams: (scenario as any).workforceParams || null,
       scenario: {
         id: scenario.id,
         name: scenario.name,
