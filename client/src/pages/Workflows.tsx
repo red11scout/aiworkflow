@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation, useParams } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -31,6 +31,7 @@ import type {
   WorkflowLiveMetrics,
   UseCase,
 } from "@shared/types";
+import AIHintPanel from "@/components/AIHintPanel";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,6 +80,18 @@ function toInteractiveNode(
     hoursPerTask: interactive.hoursPerTask ?? 1,
     tasksPerMonth: interactive.tasksPerMonth ?? 20,
     position: interactive.position ?? { x: 0, y: index * 150 },
+    // Enhanced fields — pass through if present, no defaults needed (optional)
+    stepCategory: interactive.stepCategory,
+    department: interactive.department,
+    isDepartmentHandoff: interactive.isDepartmentHandoff,
+    systemDetails: interactive.systemDetails,
+    outputType: interactive.outputType,
+    epochCategory: interactive.epochCategory,
+    hitlDetails: interactive.hitlDetails,
+    desiredAIOutputType: interactive.desiredAIOutputType,
+    aiApproach: interactive.aiApproach,
+    aiApproachRationale: interactive.aiApproachRationale,
+    burdenMultiplier: interactive.burdenMultiplier ?? 1.35,
   };
 }
 
@@ -184,7 +197,9 @@ export default function Workflows() {
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (!scenario) throw new Error("No active scenario");
-      const mapsToSave: WorkflowMap[] = [];
+      // Use 'any' for the save payload since we include enhanced fields
+      // beyond what WorkflowMap strictly types (they're stored in JSONB)
+      const mapsToSave: any[] = [];
 
       for (const imap of Array.from(interactiveMaps.values())) {
         mapsToSave.push({
@@ -194,7 +209,7 @@ export default function Workflows() {
           patternRationale: imap.patternRationale,
           currentState: (
             imap.currentStateInteractive ||
-            imap.currentState ||
+            (imap.currentState as InteractiveWorkflowNode[]) ||
             []
           ).map((n) => ({
             id: n.id,
@@ -208,10 +223,22 @@ export default function Workflows() {
             isBottleneck: n.isBottleneck,
             isDecisionPoint: n.isDecisionPoint,
             painPoints: n.painPoints,
+            // Enhanced fields
+            employeeCount: n.employeeCount,
+            avgHourlyCost: n.avgHourlyCost,
+            hoursPerTask: n.hoursPerTask,
+            tasksPerMonth: n.tasksPerMonth,
+            frictionType: n.frictionType,
+            stepCategory: n.stepCategory,
+            department: n.department,
+            isDepartmentHandoff: n.isDepartmentHandoff,
+            systemDetails: n.systemDetails,
+            outputType: n.outputType,
+            burdenMultiplier: n.burdenMultiplier,
           })),
           targetState: (
             imap.targetStateInteractive ||
-            imap.targetState ||
+            (imap.targetState as InteractiveWorkflowNode[]) ||
             []
           ).map((n) => ({
             id: n.id,
@@ -229,6 +256,23 @@ export default function Workflows() {
             isHumanInTheLoop: n.isHumanInTheLoop,
             aiCapabilities: n.aiCapabilities,
             automationLevel: n.automationLevel,
+            hitlCheckpoint: n.hitlCheckpoint,
+            // Enhanced fields
+            employeeCount: n.employeeCount,
+            avgHourlyCost: n.avgHourlyCost,
+            hoursPerTask: n.hoursPerTask,
+            tasksPerMonth: n.tasksPerMonth,
+            stepCategory: n.stepCategory,
+            department: n.department,
+            isDepartmentHandoff: n.isDepartmentHandoff,
+            systemDetails: n.systemDetails,
+            outputType: n.outputType,
+            epochCategory: n.epochCategory,
+            hitlDetails: n.hitlDetails,
+            desiredAIOutputType: n.desiredAIOutputType,
+            aiApproach: n.aiApproach,
+            aiApproachRationale: n.aiApproachRationale,
+            burdenMultiplier: n.burdenMultiplier,
           })),
           comparisonMetrics: imap.comparisonMetrics,
           desiredOutcomes: imap.desiredOutcomes,
@@ -254,6 +298,24 @@ export default function Workflows() {
       toast.error(`Save failed: ${error.message}`);
     },
   });
+
+  // -----------------------------------------------------------------------
+  // Unsaved changes warning
+  // -----------------------------------------------------------------------
+
+  const hasUnsavedChanges = useCallback(() => {
+    return Array.from(interactiveMaps.values()).some((m) => m.isUserModified);
+  }, [interactiveMaps]);
+
+  useEffect(() => {
+    function handleBeforeUnload(e: BeforeUnloadEvent) {
+      if (hasUnsavedChanges()) {
+        e.preventDefault();
+      }
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasUnsavedChanges]);
 
   // -----------------------------------------------------------------------
   // Generate AI Workflows
@@ -437,6 +499,17 @@ export default function Workflows() {
         </div>
       )}
 
+      {/* AI Hints */}
+      <div className="mb-6">
+        <AIHintPanel
+          section="workflows"
+          sectionLabel="Workflow Mapping"
+          context={selectedUseCase?.name}
+          scenarioId={scenario?.id}
+          projectId={projectId}
+        />
+      </div>
+
       {/* Main Content Area */}
       {hasWorkflowForSelected ? (
         <div className="space-y-6">
@@ -583,13 +656,13 @@ export default function Workflows() {
           Setup
         </Button>
         <Button
-          onClick={() => navigate(`/project/${projectId}/dashboard`)}
+          onClick={() => navigate(`/project/${projectId}/review`)}
           className="gap-2 text-white"
           style={{
             background: "linear-gradient(135deg, #001278, #02a2fd)",
           }}
         >
-          Dashboard
+          Review
           <ChevronRight className="w-4 h-4" />
         </Button>
       </div>

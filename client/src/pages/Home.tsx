@@ -127,6 +127,18 @@ export default function Home() {
     <Layout>
       {/* Hero Section */}
       <div className="text-center py-16">
+        <div className="flex justify-center mb-8">
+          <img
+            src="/blueally-logo.png"
+            alt="BlueAlly"
+            className="h-12 w-auto dark:hidden"
+          />
+          <img
+            src="/blueally-logo-white.png"
+            alt="BlueAlly"
+            className="h-12 w-auto hidden dark:block"
+          />
+        </div>
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-muted/80 border border-border/50 text-xs font-medium text-muted-foreground mb-6">
           <Sparkles className="w-3.5 h-3.5 text-[#02a2fd]" />
           Powered by Claude AI
@@ -415,6 +427,24 @@ export default function Home() {
           </div>
         </>
       )}
+      {/* Footer */}
+      <div className="border-t border-border/50 mt-16 pt-8 pb-4 text-center">
+        <div className="flex items-center justify-center gap-2 mb-2">
+          <img
+            src="/blueally-logo.png"
+            alt="BlueAlly"
+            className="h-5 w-auto dark:hidden"
+          />
+          <img
+            src="/blueally-logo-white.png"
+            alt="BlueAlly"
+            className="h-5 w-auto hidden dark:block"
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Powered by BlueAlly Technology Solutions
+        </p>
+      </div>
     </Layout>
   );
 }

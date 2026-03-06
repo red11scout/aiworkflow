@@ -58,6 +58,12 @@ function AddStepForm({ variant, onAdd, onCancel }: AddStepFormProps) {
       avgHourlyCost: 75,
       hoursPerTask: 1,
       tasksPerMonth: 20,
+      stepCategory: "working",
+      department: "",
+      isDepartmentHandoff: false,
+      systemDetails: [],
+      outputType: undefined,
+      burdenMultiplier: 1.35,
     };
 
     onAdd(newNode);

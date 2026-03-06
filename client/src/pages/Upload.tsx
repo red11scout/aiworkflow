@@ -26,9 +26,14 @@ import {
   Building2,
   Briefcase,
   X,
+  Users,
+  DollarSign,
+  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { UseCase } from "@shared/types";
+import type { UseCase, WorkforceParams } from "@shared/types";
+import { formatNumber, formatCurrencyFull } from "@/lib/utils";
+import AIHintPanel from "@/components/AIHintPanel";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -76,6 +81,17 @@ export default function Upload() {
   const [description, setDescription] = useState("");
   const [infoDirty, setInfoDirty] = useState(false);
 
+  // Workforce parameters
+  const [workforceParams, setWorkforceParams] = useState<WorkforceParams>({
+    totalEmployees: undefined,
+    avgHourlyRate: undefined,
+    burdenMultiplier: 1.35,
+    annualRevenue: undefined,
+    industry: "",
+    workHoursPerYear: 2080,
+  });
+  const [workforceInitialized, setWorkforceInitialized] = useState(false);
+
   // Manual use case form
   const [showAddForm, setShowAddForm] = useState(false);
   const [newUcName, setNewUcName] = useState("");
@@ -95,6 +111,28 @@ export default function Upload() {
     setCompanyName(project.companyName || "");
     setIndustry(project.industry || "");
     setDescription(project.description || "");
+  }
+
+  // Populate workforce params from scenario on first load
+  const scenario_data = project?.activeScenario;
+  if (scenario_data && !workforceInitialized) {
+    setWorkforceInitialized(true);
+    const saved = (scenario_data as any).workforceParams as WorkforceParams | null;
+    if (saved) {
+      setWorkforceParams({
+        totalEmployees: saved.totalEmployees,
+        avgHourlyRate: saved.avgHourlyRate,
+        burdenMultiplier: saved.burdenMultiplier ?? 1.35,
+        annualRevenue: saved.annualRevenue,
+        industry: saved.industry || project?.industry || "",
+        workHoursPerYear: saved.workHoursPerYear ?? 2080,
+      });
+    } else {
+      setWorkforceParams((prev) => ({
+        ...prev,
+        industry: project?.industry || "",
+      }));
+    }
   }
 
   const scenario = project?.activeScenario;
@@ -178,6 +216,49 @@ export default function Upload() {
     },
     onError: (error: Error) => {
       toast.error(`Failed to add use case: ${error.message}`);
+    },
+  });
+
+  // Save workforce parameters
+  const saveWorkforceMutation = useMutation({
+    mutationFn: async () => {
+      if (!scenario) throw new Error("No active scenario");
+      const res = await apiRequest(
+        "PUT",
+        `/api/scenarios/${scenario.id}/section/workforce_params`,
+        { data: workforceParams },
+      );
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/projects/${projectId}`] });
+      toast.success("Workforce parameters saved");
+    },
+    onError: (error: Error) => {
+      toast.error(`Save failed: ${error.message}`);
+    },
+  });
+
+  // AI research workforce data
+  const researchWorkforceMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/ai/research-workforce", {
+        companyName,
+        industry,
+      });
+      return res.json();
+    },
+    onSuccess: (data: WorkforceParams) => {
+      setWorkforceParams((prev) => ({
+        ...prev,
+        ...data,
+        burdenMultiplier: data.burdenMultiplier ?? prev.burdenMultiplier ?? 1.35,
+        workHoursPerYear: data.workHoursPerYear ?? prev.workHoursPerYear ?? 2080,
+      }));
+      toast.success("Workforce data populated from AI research");
+    },
+    onError: (error: Error) => {
+      toast.error(`AI research failed: ${error.message}`);
     },
   });
 
@@ -311,6 +392,7 @@ export default function Upload() {
                   onChange={(e) => {
                     setIndustry(e.target.value);
                     setInfoDirty(true);
+                    setWorkforceParams((prev) => ({ ...prev, industry: e.target.value }));
                   }}
                   placeholder="Technology, Healthcare, Retail..."
                 />
@@ -421,6 +503,139 @@ export default function Upload() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Workforce Parameters */}
+        {scenario && (
+          <Card>
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Users className="w-5 h-5 text-[#001278]" />
+                  Workforce Parameters
+                </CardTitle>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => researchWorkforceMutation.mutate()}
+                  disabled={researchWorkforceMutation.isPending || !companyName.trim()}
+                  className="gap-1.5"
+                >
+                  {researchWorkforceMutation.isPending ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5" />
+                  )}
+                  Research with AI
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="total-employees">Total Employees</Label>
+                  <Input
+                    id="total-employees"
+                    type="number"
+                    value={workforceParams.totalEmployees ?? ""}
+                    onChange={(e) =>
+                      setWorkforceParams((prev) => ({
+                        ...prev,
+                        totalEmployees: e.target.value ? parseInt(e.target.value) : undefined,
+                      }))
+                    }
+                    placeholder="500"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="avg-hourly-rate">Average Hourly Rate</Label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                    <Input
+                      id="avg-hourly-rate"
+                      type="number"
+                      value={workforceParams.avgHourlyRate ?? ""}
+                      onChange={(e) =>
+                        setWorkforceParams((prev) => ({
+                          ...prev,
+                          avgHourlyRate: e.target.value ? parseFloat(e.target.value) : undefined,
+                        }))
+                      }
+                      placeholder="45.00"
+                      className="pl-7"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="burden-multiplier">Burden Multiplier</Label>
+                  <Input
+                    id="burden-multiplier"
+                    type="number"
+                    step="0.01"
+                    value={workforceParams.burdenMultiplier ?? ""}
+                    onChange={(e) =>
+                      setWorkforceParams((prev) => ({
+                        ...prev,
+                        burdenMultiplier: e.target.value ? parseFloat(e.target.value) : undefined,
+                      }))
+                    }
+                    placeholder="1.35"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="annual-revenue">Annual Revenue</Label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                    <Input
+                      id="annual-revenue"
+                      type="number"
+                      value={workforceParams.annualRevenue ?? ""}
+                      onChange={(e) =>
+                        setWorkforceParams((prev) => ({
+                          ...prev,
+                          annualRevenue: e.target.value ? parseFloat(e.target.value) : undefined,
+                        }))
+                      }
+                      placeholder="50000000"
+                      className="pl-7"
+                    />
+                  </div>
+                  {workforceParams.annualRevenue != null && workforceParams.annualRevenue > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      {formatCurrencyFull(workforceParams.annualRevenue)}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="wf-industry">Industry</Label>
+                  <Input
+                    id="wf-industry"
+                    value={workforceParams.industry ?? ""}
+                    onChange={(e) =>
+                      setWorkforceParams((prev) => ({
+                        ...prev,
+                        industry: e.target.value,
+                      }))
+                    }
+                    placeholder="Technology, Healthcare..."
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => saveWorkforceMutation.mutate()}
+                  disabled={saveWorkforceMutation.isPending}
+                >
+                  {saveWorkforceMutation.isPending && (
+                    <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
+                  )}
+                  Save Parameters
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Use Case List */}
         <div>
@@ -585,11 +800,33 @@ export default function Upload() {
           )}
         </div>
 
+        {/* AI Hints */}
+        <AIHintPanel
+          section="import"
+          sectionLabel="Import & Setup"
+          scenarioId={scenario?.id}
+          projectId={projectId}
+        />
+
         {/* Start Workshop Button */}
         <div className="flex justify-end pb-8">
           <Button
             size="lg"
-            onClick={() => navigate(`/project/${projectId}/workshop`)}
+            onClick={async () => {
+              // Save workforce params before navigating
+              if (scenario && workforceParams.totalEmployees != null) {
+                try {
+                  await apiRequest(
+                    "PUT",
+                    `/api/scenarios/${scenario.id}/section/workforce_params`,
+                    { data: workforceParams },
+                  );
+                } catch {
+                  // Non-blocking — continue to workshop
+                }
+              }
+              navigate(`/project/${projectId}/workshop`);
+            }}
             disabled={useCases.length === 0}
             className="gap-2 text-white"
             style={{

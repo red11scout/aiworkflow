@@ -7,7 +7,7 @@ interface LayoutProps {
   children: ReactNode;
   projectId?: string;
   companyName?: string;
-  activeTab?: "setup" | "workshop" | "dashboard";
+  activeTab?: "setup" | "workshop" | "review" | "dashboard";
 }
 
 export default function Layout({
@@ -75,6 +75,7 @@ export default function Layout({
             {[
               { key: "setup" as const, label: "Setup", path: `/project/${projectId}` },
               { key: "workshop" as const, label: "Workshop", path: `/project/${projectId}/workshop` },
+              { key: "review" as const, label: "Review", path: `/project/${projectId}/review` },
               { key: "dashboard" as const, label: "Dashboard", path: `/project/${projectId}/dashboard` },
             ].map((tab) => (
               <button

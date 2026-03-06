@@ -16,6 +16,7 @@ import type {
   ScenarioAnalysis,
   MultiYearProjection,
   FrictionRecovery,
+  WorkforceParams,
 } from "./types";
 
 // =========================================================================
@@ -67,6 +68,7 @@ export const scenarios = pgTable("scenarios", {
   readiness: jsonb("readiness").$type<ReadinessModel[]>(),
   priorities: jsonb("priorities").$type<PriorityScore[]>(),
   workflowMaps: jsonb("workflow_maps").$type<WorkflowMap[]>(),
+  workforceParams: jsonb("workforce_params").$type<WorkforceParams>(),
 
   // Summary data
   executiveSummary: jsonb("executive_summary").$type<ExecutiveSummary>(),

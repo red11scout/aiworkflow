@@ -360,7 +360,72 @@ export const EPOCH_CATEGORIES = [
 export type EpochCategoryId = typeof EPOCH_CATEGORIES[number]["id"];
 
 // ---------------------------------------------------------------------------
-// 13. HELPER FUNCTIONS
+// 13. STEP CATEGORIES (identifies lag/wait time where AI can help)
+// ---------------------------------------------------------------------------
+
+export const STEP_CATEGORIES = [
+  { id: "working" as const, label: "Working", color: "#36bf78", description: "Active productive work" },
+  { id: "waiting_approval" as const, label: "Waiting for Approval", color: "#f59e0b", description: "Blocked pending internal approval" },
+  { id: "waiting_feedback" as const, label: "Waiting for Feedback", color: "#f59e0b", description: "Blocked pending internal feedback" },
+  { id: "waiting_external" as const, label: "Waiting for External", color: "#ef4444", description: "Blocked pending external party response" },
+  { id: "waiting_customer" as const, label: "Waiting for Customer", color: "#ef4444", description: "Blocked pending customer response" },
+  { id: "rework" as const, label: "Rework", color: "#8b5cf6", description: "Redoing previous work due to errors or changes" },
+  { id: "handoff" as const, label: "Handoff", color: "#06b6d4", description: "Transitioning between teams or departments" },
+  { id: "review" as const, label: "Review", color: "#02a2fd", description: "Quality, compliance, or management review" },
+] as const;
+
+// ---------------------------------------------------------------------------
+// 14. OUTPUT TYPES
+// ---------------------------------------------------------------------------
+
+export const OUTPUT_TYPES = [
+  { id: "report" as const, label: "Report" },
+  { id: "document" as const, label: "Document" },
+  { id: "decision" as const, label: "Decision" },
+  { id: "notification" as const, label: "Notification" },
+  { id: "data_entry" as const, label: "Data Entry" },
+  { id: "email" as const, label: "Email/Communication" },
+  { id: "dashboard" as const, label: "Dashboard Update" },
+  { id: "approval" as const, label: "Approval" },
+  { id: "other" as const, label: "Other" },
+] as const;
+
+// ---------------------------------------------------------------------------
+// 15. AI APPROACHES
+// ---------------------------------------------------------------------------
+
+export const AI_APPROACHES = [
+  { id: "primitive" as const, label: "AI Primitive", description: "Single AI capability (e.g., summarization, classification, extraction)" },
+  { id: "single_agent" as const, label: "Single Agent", description: "One autonomous agent with tools — think-act-observe loop" },
+  { id: "multi_agent" as const, label: "Multi-Agent", description: "Multiple coordinated agents with orchestrator — for complex cross-domain tasks" },
+] as const;
+
+// ---------------------------------------------------------------------------
+// 16. ACTOR TYPES
+// ---------------------------------------------------------------------------
+
+export const ACTOR_TYPES = [
+  { id: "human" as const, label: "Human" },
+  { id: "ai" as const, label: "AI" },
+  { id: "hybrid" as const, label: "Hybrid" },
+  { id: "system" as const, label: "System" },
+] as const;
+
+// ---------------------------------------------------------------------------
+// 17. INTEGRATION TYPES
+// ---------------------------------------------------------------------------
+
+export const INTEGRATION_TYPES = [
+  { id: "api" as const, label: "API" },
+  { id: "file" as const, label: "File Transfer" },
+  { id: "manual" as const, label: "Manual" },
+  { id: "webhook" as const, label: "Webhook" },
+  { id: "database" as const, label: "Database" },
+  { id: "none" as const, label: "None" },
+] as const;
+
+// ---------------------------------------------------------------------------
+// 18. HELPER FUNCTIONS
 // ---------------------------------------------------------------------------
 
 export function getRoleByRoleId(roleId: string): StandardizedRole | undefined {

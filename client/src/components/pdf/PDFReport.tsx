@@ -6,33 +6,26 @@ import {
   View,
   StyleSheet,
   Font,
+  Image,
   pdf,
 } from "@react-pdf/renderer";
 
 // ---------------------------------------------------------------------------
-// Font registration — DM Sans from Google Fonts CDN
+// Font registration — DM Sans from local static TTFs (bundled in public/fonts)
+// CDN URLs break silently in production on Vercel, so we serve them locally.
 // ---------------------------------------------------------------------------
 Font.register({
   family: "DM Sans",
   fonts: [
-    {
-      src: "https://fonts.gstatic.com/s/dmsans/v15/rP2tp2ywxg089UriI5-g4vlH9VoD8CmcqZG40F9JadbnoEwAkJxhTmHvol6e.ttf",
-      fontWeight: 400,
-    },
-    {
-      src: "https://fonts.gstatic.com/s/dmsans/v15/rP2tp2ywxg089UriI5-g4vlH9VoD8CmcqZG40F9JadbnoEwAop1hTmHvol6e.ttf",
-      fontWeight: 500,
-    },
-    {
-      src: "https://fonts.gstatic.com/s/dmsans/v15/rP2tp2ywxg089UriI5-g4vlH9VoD8CmcqZG40F9JadbnoEwAXpphTmHvol6e.ttf",
-      fontWeight: 600,
-    },
-    {
-      src: "https://fonts.gstatic.com/s/dmsans/v15/rP2tp2ywxg089UriI5-g4vlH9VoD8CmcqZG40F9JadbnoEwAZ5phTmHvol6e.ttf",
-      fontWeight: 700,
-    },
+    { src: "/fonts/DMSans-Regular.ttf", fontWeight: 400 },
+    { src: "/fonts/DMSans-Medium.ttf", fontWeight: 500 },
+    { src: "/fonts/DMSans-SemiBold.ttf", fontWeight: 600 },
+    { src: "/fonts/DMSans-Bold.ttf", fontWeight: 700 },
   ],
 });
+
+// Prevent potential crashes from hyphenation in @react-pdf/renderer
+Font.registerHyphenationCallback((word) => [word]);
 
 // ---------------------------------------------------------------------------
 // Brand palette
@@ -42,6 +35,10 @@ const BLUE = "#02a2fd";
 const GREEN = "#36bf78";
 const GRAY = "#6b7280";
 const LIGHT_GRAY = "#f3f4f6";
+
+// Logo URLs — local assets to avoid CORS issues in production
+const LOGO_BLUE_URL = "/blueally-logo.png";
+const LOGO_WHITE_URL = "/blueally-logo-white.png";
 
 // ---------------------------------------------------------------------------
 // Stylesheet
@@ -68,10 +65,9 @@ const styles = StyleSheet.create({
     borderBottomColor: BLUE,
     paddingBottom: 8,
   },
-  headerLogo: {
-    fontSize: 14,
-    fontWeight: 700,
-    color: NAVY,
+  headerLogoImage: {
+    width: 80,
+    height: "auto" as any,
   },
   headerDate: {
     fontSize: 8,
@@ -106,11 +102,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 60,
   },
-  coverLogo: {
-    fontSize: 36,
-    fontWeight: 700,
-    color: "white",
-    marginBottom: 8,
+  coverLogoImage: {
+    width: 180,
+    height: "auto" as any,
+    marginBottom: 12,
   },
   coverSubtitle: {
     fontSize: 12,
@@ -256,6 +251,28 @@ const styles = StyleSheet.create({
     marginBottom: 3,
   },
 
+  // -- Systems list --------------------------------------------------------
+  systemRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 3,
+    paddingHorizontal: 4,
+    borderBottomWidth: 0.5,
+    borderBottomColor: "#f3f4f6",
+  },
+  systemName: {
+    fontSize: 8,
+    color: "#374151",
+  },
+  systemBadge: {
+    fontSize: 7,
+    color: GRAY,
+    backgroundColor: LIGHT_GRAY,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 3,
+  },
+
   // -- Misc ----------------------------------------------------------------
   paragraph: {
     fontSize: 10,
@@ -269,19 +286,35 @@ const styles = StyleSheet.create({
 // Helpers
 // ---------------------------------------------------------------------------
 function formatCurrencyPdf(amount: number): string {
-  if (amount >= 1_000_000) return `$${(amount / 1_000_000).toFixed(1)}M`;
-  if (amount >= 1_000) return `$${(amount / 1_000).toFixed(0)}K`;
+  if (Math.abs(amount) >= 1_000_000) return `$${(amount / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(amount) >= 1_000) return `$${(amount / 1_000).toFixed(0)}K`;
   return `$${amount.toFixed(0)}`;
 }
 
 function parseCurrency(val: string): number {
   if (!val) return 0;
-  const clean = val.replace(/[$,\s]/g, "");
-  if (clean.endsWith("M")) return parseFloat(clean) * 1_000_000;
-  if (clean.endsWith("K")) return parseFloat(clean) * 1_000;
-  if (clean.endsWith("B")) return parseFloat(clean) * 1_000_000_000;
+  let clean = val.replace(/[$,\s]/g, "");
+  clean = clean.replace(/\/(yr|year|mo|month|quarter|qtr|week|day|annual)$/i, "");
+  clean = clean.replace(/per\s*(year|month|quarter|week|day|annum)$/i, "");
+  clean = clean.replace(/(annually|monthly|yearly)$/i, "");
+  if (/m$/i.test(clean)) return parseFloat(clean) * 1_000_000;
+  if (/k$/i.test(clean)) return parseFloat(clean) * 1_000;
+  if (/b$/i.test(clean)) return parseFloat(clean) * 1_000_000_000;
   const num = parseFloat(clean);
   return isNaN(num) ? 0 : num;
+}
+
+function parseDurationToHours(duration: string): number {
+  if (!duration || duration === "--") return 0;
+  const lower = duration.toLowerCase().trim();
+  const num = parseFloat(lower.replace(/[^0-9.]/g, ""));
+  if (isNaN(num)) return 0;
+  if (lower.includes("day")) return num * 8;
+  if (lower.includes("hour") || lower.includes("hr")) return num;
+  if (lower.includes("min")) return num / 60;
+  if (lower.includes("sec")) return num / 3600;
+  if (lower.includes("week")) return num * 40;
+  return num;
 }
 
 // ---------------------------------------------------------------------------
@@ -306,7 +339,7 @@ export interface PDFReportProps {
 function PageHeader({ companyName }: { companyName: string }) {
   return (
     <View style={styles.header} fixed>
-      <Text style={styles.headerLogo}>BlueAlly</Text>
+      <Image src={LOGO_BLUE_URL} style={styles.headerLogoImage} />
       <Text style={styles.headerDate}>
         {companyName} — AI Workflow Assessment
       </Text>
@@ -342,7 +375,7 @@ function CoverPage({
 }) {
   return (
     <Page size="A4" style={styles.coverPage}>
-      <Text style={styles.coverLogo}>BlueAlly</Text>
+      <Image src={LOGO_WHITE_URL} style={styles.coverLogoImage} />
       <Text style={styles.coverSubtitle}>AI CONSULTING</Text>
       <Text style={styles.coverTitle}>AI Workflow Orchestration</Text>
       <Text style={styles.coverTitle}>Assessment Report</Text>
@@ -352,6 +385,252 @@ function CoverPage({
         This document contains proprietary and confidential information.
         Distribution is limited to authorized personnel only.
       </Text>
+    </Page>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Workflow Impact Dashboard Page (NEW)
+// ---------------------------------------------------------------------------
+function DashboardMetricsPage({ props }: { props: PDFReportProps }) {
+  const { workflowMaps } = props;
+  if (!workflowMaps || workflowMaps.length === 0) return null;
+
+  // Compute per-use-case metrics
+  const rows = workflowMaps.map((wf: any) => {
+    let currentHours = 0;
+    let targetHours = 0;
+    let aiEnabled = 0;
+    const totalTarget = (wf.targetState || []).length;
+
+    for (const n of (wf.currentState || [])) {
+      currentHours += parseDurationToHours(n.duration);
+    }
+    for (const n of (wf.targetState || [])) {
+      targetHours += parseDurationToHours(n.duration);
+      if (n.isAIEnabled) aiEnabled++;
+    }
+
+    let costSaved = 0;
+    if (wf.comparisonMetrics?.costReduction) {
+      const before = parseCurrency(wf.comparisonMetrics.costReduction.before || "0");
+      const after = parseCurrency(wf.comparisonMetrics.costReduction.after || "0");
+      costSaved = Math.max(0, before - after);
+    }
+
+    return {
+      name: wf.useCaseName || "—",
+      currentHours,
+      targetHours,
+      hoursSaved: Math.max(0, currentHours - targetHours),
+      costSaved,
+      automationPct: totalTarget > 0 ? (aiEnabled / totalTarget) * 100 : 0,
+    };
+  });
+
+  const totalHoursSaved = rows.reduce((s, r) => s + r.hoursSaved, 0);
+  const totalCostSaved = rows.reduce((s, r) => s + r.costSaved, 0);
+  const avgAutomation = rows.length > 0
+    ? rows.reduce((s, r) => s + r.automationPct, 0) / rows.length
+    : 0;
+
+  const cols = [
+    { label: "Use Case", width: "30%" as const },
+    { label: "Current Hrs", width: "14%" as const },
+    { label: "Target Hrs", width: "14%" as const },
+    { label: "Hours Saved", width: "14%" as const },
+    { label: "Cost Saved", width: "14%" as const },
+    { label: "Automation", width: "14%" as const },
+  ];
+
+  return (
+    <Page size="A4" style={styles.page}>
+      <PageHeader companyName={props.companyName} />
+      <Text style={styles.sectionTitle}>Workflow Impact Dashboard</Text>
+
+      <View style={styles.metricRow}>
+        <View style={styles.metricCard}>
+          <Text style={styles.metricValue}>
+            {Math.round(totalHoursSaved).toLocaleString()}
+          </Text>
+          <Text style={styles.metricLabel}>Hours Saved Per Cycle</Text>
+        </View>
+        <View style={styles.metricCard}>
+          <Text style={styles.metricValue}>
+            {formatCurrencyPdf(totalCostSaved)}
+          </Text>
+          <Text style={styles.metricLabel}>Annual Cost Savings</Text>
+        </View>
+        <View style={styles.metricCard}>
+          <Text style={styles.metricValue}>{Math.round(avgAutomation)}%</Text>
+          <Text style={styles.metricLabel}>AI Automation Rate</Text>
+        </View>
+        <View style={styles.metricCard}>
+          <Text style={styles.metricValue}>{rows.length}</Text>
+          <Text style={styles.metricLabel}>Use Cases Mapped</Text>
+        </View>
+      </View>
+
+      <Text style={styles.subsectionTitle}>Per-Use-Case Breakdown</Text>
+
+      <View style={styles.tableHeader}>
+        {cols.map((c) => (
+          <Text key={c.label} style={[styles.tableHeaderText, { width: c.width }]}>
+            {c.label}
+          </Text>
+        ))}
+      </View>
+
+      {rows.map((r, i) => (
+        <View
+          key={`dm-${i}`}
+          style={[styles.tableRow, i % 2 === 1 ? styles.tableRowAlt : {}]}
+          wrap={false}
+        >
+          <Text style={[styles.tableCellText, { width: "30%" }]}>{r.name}</Text>
+          <Text style={[styles.tableCellText, { width: "14%", textAlign: "right" }]}>
+            {Math.round(r.currentHours)}
+          </Text>
+          <Text style={[styles.tableCellText, { width: "14%", textAlign: "right" }]}>
+            {Math.round(r.targetHours)}
+          </Text>
+          <Text style={[styles.tableCellText, { width: "14%", textAlign: "right", color: GREEN }]}>
+            {Math.round(r.hoursSaved)}
+          </Text>
+          <Text style={[styles.tableCellText, { width: "14%", textAlign: "right", color: GREEN }]}>
+            {formatCurrencyPdf(r.costSaved)}
+          </Text>
+          <Text style={[styles.tableCellText, { width: "14%", textAlign: "right" }]}>
+            {Math.round(r.automationPct)}%
+          </Text>
+        </View>
+      ))}
+
+      <PageFooter />
+    </Page>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Systems & Integration Requirements Page (NEW)
+// ---------------------------------------------------------------------------
+function SystemsSummaryPage({ props }: { props: PDFReportProps }) {
+  const { workflowMaps } = props;
+  if (!workflowMaps || workflowMaps.length === 0) return null;
+
+  const systemMap = new Map<string, Set<string>>();
+  const integrationTypeMap = new Map<string, number>();
+  const dataTypeMap = new Map<string, number>();
+
+  for (const wf of workflowMaps) {
+    const allNodes = [...(wf.currentState || []), ...(wf.targetState || [])];
+    for (const node of allNodes) {
+      for (const sys of (node.systems || [])) {
+        if (!sys) continue;
+        if (!systemMap.has(sys)) systemMap.set(sys, new Set());
+        systemMap.get(sys)!.add(wf.useCaseName);
+      }
+      for (const sd of ((node as any).systemDetails || [])) {
+        if (sd.name) {
+          if (!systemMap.has(sd.name)) systemMap.set(sd.name, new Set());
+          systemMap.get(sd.name)!.add(wf.useCaseName);
+        }
+        if (sd.integrationType) {
+          integrationTypeMap.set(sd.integrationType, (integrationTypeMap.get(sd.integrationType) || 0) + 1);
+        }
+        if (sd.dataType) {
+          dataTypeMap.set(sd.dataType, (dataTypeMap.get(sd.dataType) || 0) + 1);
+        }
+      }
+    }
+    for (const dt of (wf.dataTypes || [])) {
+      if (dt) dataTypeMap.set(dt, (dataTypeMap.get(dt) || 0) + 1);
+    }
+    for (const ig of (wf.integrations || [])) {
+      if (!ig) continue;
+      if (!systemMap.has(ig)) systemMap.set(ig, new Set());
+      systemMap.get(ig)!.add(wf.useCaseName);
+    }
+  }
+
+  const systems = [...systemMap.entries()]
+    .map(([name, ucSet]) => ({ name, count: ucSet.size }))
+    .sort((a, b) => b.count - a.count);
+
+  const integrationTypes = [...integrationTypeMap.entries()]
+    .map(([type, count]) => ({ type, count }))
+    .sort((a, b) => b.count - a.count);
+
+  const dataTypes = [...dataTypeMap.entries()]
+    .map(([type, count]) => ({ type, count }))
+    .sort((a, b) => b.count - a.count);
+
+  if (systems.length === 0 && integrationTypes.length === 0 && dataTypes.length === 0) {
+    return null;
+  }
+
+  return (
+    <Page size="A4" style={styles.page}>
+      <PageHeader companyName={props.companyName} />
+      <Text style={styles.sectionTitle}>Systems & Integration Requirements</Text>
+
+      <Text style={styles.paragraph}>
+        This section summarizes the systems, integration types, and data formats
+        across all mapped workflows. Systems appearing in multiple use cases
+        represent shared infrastructure that can accelerate implementation.
+      </Text>
+
+      <View style={{ flexDirection: "row", gap: 16 }}>
+        {/* Systems column */}
+        <View style={{ flex: 2 }}>
+          <Text style={styles.subsectionTitle}>
+            Systems ({systems.length})
+          </Text>
+          {systems.slice(0, 15).map((s, i) => (
+            <View key={`sys-${i}`} style={styles.systemRow}>
+              <Text style={styles.systemName}>{s.name}</Text>
+              <Text style={styles.systemBadge}>
+                {s.count} use case{s.count !== 1 ? "s" : ""}
+              </Text>
+            </View>
+          ))}
+        </View>
+
+        {/* Right column: integration types + data types */}
+        <View style={{ flex: 1 }}>
+          {integrationTypes.length > 0 && (
+            <>
+              <Text style={styles.subsectionTitle}>Integration Types</Text>
+              {integrationTypes.map((it, i) => (
+                <View key={`it-${i}`} style={styles.systemRow}>
+                  <Text style={styles.systemName}>
+                    {it.type.replace(/_/g, " ")}
+                  </Text>
+                  <Text style={styles.systemBadge}>{it.count}</Text>
+                </View>
+              ))}
+            </>
+          )}
+
+          {dataTypes.length > 0 && (
+            <>
+              <Text style={[styles.subsectionTitle, { marginTop: 16 }]}>
+                Data Types
+              </Text>
+              {dataTypes.map((dt, i) => (
+                <View key={`dt-${i}`} style={styles.systemRow}>
+                  <Text style={styles.systemName}>
+                    {dt.type.replace(/_/g, " ")}
+                  </Text>
+                  <Text style={styles.systemBadge}>{dt.count}</Text>
+                </View>
+              ))}
+            </>
+          )}
+        </View>
+      </View>
+
+      <PageFooter />
     </Page>
   );
 }
@@ -432,6 +711,8 @@ function ExecutiveSummaryPage({ props }: { props: PDFReportProps }) {
 // ---------------------------------------------------------------------------
 function UseCasesPage({ props }: { props: PDFReportProps }) {
   const { priorities, benefits, readiness } = props;
+  if (!priorities || priorities.length === 0) return null;
+
   const sorted = [...priorities].sort(
     (a: any, b: any) => (b.priorityScore || 0) - (a.priorityScore || 0),
   );
@@ -597,7 +878,7 @@ function WorkflowsPage({ props }: { props: PDFReportProps }) {
       <PageHeader companyName={props.companyName} />
       <Text style={styles.sectionTitle}>Workflow Transformations</Text>
 
-      {workflowMaps.slice(0, 8).map((wf: any, idx: number) => {
+      {workflowMaps.slice(0, 10).map((wf: any, idx: number) => {
         const cm = wf.comparisonMetrics || {};
         const metricItems = [
           { label: "Time", data: cm.timeReduction },
@@ -791,10 +1072,12 @@ export function PDFReport(props: PDFReportProps) {
         companyName={props.companyName}
         generatedAt={props.generatedAt}
       />
+      <DashboardMetricsPage props={props} />
       <ExecutiveSummaryPage props={props} />
       <UseCasesPage props={props} />
       <BenefitsPage props={props} />
       <WorkflowsPage props={props} />
+      <SystemsSummaryPage props={props} />
       <ReadinessPage props={props} />
     </Document>
   );

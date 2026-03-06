@@ -217,6 +217,57 @@ export interface WorkflowMap {
 }
 
 // =========================================================================
+// STEP CLASSIFICATION TYPES (for enhanced workflow step cards)
+// =========================================================================
+
+export type StepCategory =
+  | "working"
+  | "waiting_approval"
+  | "waiting_feedback"
+  | "waiting_external"
+  | "waiting_customer"
+  | "rework"
+  | "handoff"
+  | "review";
+
+export type ActorType = "human" | "ai" | "hybrid" | "system" | "ai_agent";
+
+export type OutputType =
+  | "report"
+  | "document"
+  | "decision"
+  | "notification"
+  | "data_entry"
+  | "email"
+  | "dashboard"
+  | "approval"
+  | "other";
+
+export type AIApproach = "primitive" | "single_agent" | "multi_agent";
+
+export type IntegrationType = "api" | "file" | "manual" | "webhook" | "database" | "none";
+
+export interface SystemDetail {
+  name: string;
+  dataType: "structured" | "semi_structured" | "unstructured" | "real_time";
+  integrationAvailable: boolean;
+  integrationType: IntegrationType;
+}
+
+// =========================================================================
+// WORKFORCE PARAMETERS
+// =========================================================================
+
+export interface WorkforceParams {
+  totalEmployees?: number;
+  avgHourlyRate?: number;
+  burdenMultiplier?: number;
+  annualRevenue?: number;
+  industry?: string;
+  workHoursPerYear?: number;
+}
+
+// =========================================================================
 // INTERACTIVE WORKFLOW BUILDER (extends base workflow types)
 // =========================================================================
 
@@ -245,6 +296,30 @@ export interface InteractiveWorkflowNode extends TargetWorkflowNode {
   prevNodeIds?: string[];
   /** React Flow position (for canvas rendering) */
   position?: { x: number; y: number };
+
+  // --- Enhanced fields (Phase 2) ---
+  /** Step category for identifying lag/wait time */
+  stepCategory?: StepCategory;
+  /** Department this step belongs to */
+  department?: string;
+  /** Whether this step is a department handoff */
+  isDepartmentHandoff?: boolean;
+  /** Detailed system information (richer than string[] systems) */
+  systemDetails?: SystemDetail[];
+  /** Final output type of this step */
+  outputType?: OutputType;
+  /** EPOCH category for HITL oversight */
+  epochCategory?: EpochCategory;
+  /** Human-in-the-loop oversight details */
+  hitlDetails?: string;
+  /** Desired AI output type (target state) */
+  desiredAIOutputType?: string;
+  /** AI approach type (target state) */
+  aiApproach?: AIApproach;
+  /** AI approach rationale */
+  aiApproachRationale?: string;
+  /** Burden rate multiplier (default 1.35) */
+  burdenMultiplier?: number;
 }
 
 export interface WorkflowStaffing {
