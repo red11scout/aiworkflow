@@ -13,6 +13,7 @@ import {
   AlertCircle,
   Users,
   Bot,
+  Shield,
 } from "lucide-react";
 import {
   computeWorkflowMetrics,
@@ -20,9 +21,12 @@ import {
   type UseCaseRow,
 } from "@/lib/workflow-metrics";
 import { SystemsHeatMap } from "@/components/dashboard/SystemsHeatMap";
+import CategoryScoreCard from "@/components/assessment/CategoryScoreCard";
+import AssessmentRadarChart from "@/components/assessment/AssessmentRadarChart";
 import { formatCurrency } from "@/lib/utils";
 import { getPatternById } from "@shared/patterns";
-import type { WorkflowMap } from "@shared/types";
+import { ASSESSMENT_STATUS_THRESHOLDS, CATEGORY_METADATA } from "@shared/assessment-questions";
+import type { WorkflowMap, AssessmentData, CompositeAssessmentScore } from "@shared/types";
 
 // ─── Design Tokens ───────────────────────────────────────────────────────────
 const T = {
@@ -616,6 +620,220 @@ export default function SharedReport() {
             <SystemsHeatMap summary={enrichedSummary} variant="report" />
           </section>
         )}
+
+        {/* ── 6. AI Readiness Assessment ─────────────────────────────────── */}
+        {(() => {
+          const assessment = (report as any).assessment as AssessmentData | null;
+          const scores = assessment?.scores;
+          if (!scores) return null;
+
+          const overallPct = Math.round(scores.overallPercentage * 100);
+          const overallThreshold = ASSESSMENT_STATUS_THRESHOLDS.find(
+            (t) => scores.overallPercentage >= t.min,
+          );
+
+          // Gather top 5 gaps across all use cases
+          const allGaps = scores.useCaseScores
+            .flatMap((uc) =>
+              uc.gaps.map((g) => ({ ...g, useCaseName: uc.useCaseName })),
+            )
+            .sort((a, b) => b.gapSize - a.gapSize)
+            .slice(0, 5);
+
+          return (
+            <section className="print:break-before-page">
+              <SectionHeading title="AI Readiness Assessment" />
+              <p className="mb-6 -mt-2 text-sm text-slate-500">
+                Organizational readiness across skills, data, infrastructure, and
+                governance dimensions.
+              </p>
+
+              {/* Overall Score Hero */}
+              <div className="rounded-lg border border-slate-200 bg-white p-8 shadow-sm text-center mb-6">
+                <p className="text-xs font-medium uppercase tracking-widest text-slate-500 mb-2">
+                  Overall AI Readiness
+                </p>
+                <p
+                  className="text-6xl font-bold"
+                  style={{ color: overallThreshold?.color }}
+                >
+                  {overallPct}%
+                </p>
+                <span
+                  className="mt-3 inline-block rounded-full px-3 py-1 text-sm font-semibold text-white"
+                  style={{ backgroundColor: overallThreshold?.color }}
+                >
+                  {overallThreshold?.label}
+                </span>
+                {scores.overallStatusDescription && (
+                  <p className="mt-3 text-sm text-slate-600 max-w-lg mx-auto">
+                    {scores.overallStatusDescription}
+                  </p>
+                )}
+                <p className="mt-2 text-xs text-slate-400">
+                  {scores.answeredQuestions} of {scores.totalQuestions} questions
+                  answered ({Math.round(scores.completionPercentage * 100)}%
+                  complete)
+                </p>
+              </div>
+
+              {/* Category Scores (2x2) + Radar */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {scores.categories.map((cat) => (
+                    <CategoryScoreCard key={cat.category} score={cat} />
+                  ))}
+                </div>
+                <AssessmentRadarChart categories={scores.categories} />
+              </div>
+
+              {/* Top 5 Gaps */}
+              {allGaps.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="mb-3 text-sm font-semibold text-slate-700">
+                    Top Readiness Gaps
+                  </h3>
+                  <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          <th className="px-4 py-3">Area</th>
+                          <th className="px-4 py-3">Category</th>
+                          <th className="px-4 py-3 text-center">Current</th>
+                          <th className="px-4 py-3 text-center">Target</th>
+                          <th className="px-4 py-3 text-center">Gap</th>
+                          <th className="px-4 py-3">Use Case</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {allGaps.map((gap, idx) => {
+                          const gapColor =
+                            gap.gapSize >= 3
+                              ? "#ef4444"
+                              : gap.gapSize >= 2
+                                ? "#f59e0b"
+                                : T.lightBlue;
+                          const catMeta =
+                            CATEGORY_METADATA[gap.category];
+                          return (
+                            <tr key={idx} className="hover:bg-slate-50/60">
+                              <td className="px-4 py-3 text-slate-800 max-w-[240px]">
+                                <p className="text-sm leading-snug">
+                                  {gap.questionText}
+                                </p>
+                                <p className="text-xs text-slate-400 mt-0.5">
+                                  {gap.subCategory}
+                                </p>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span
+                                  className="text-xs font-medium"
+                                  style={{ color: catMeta?.color }}
+                                >
+                                  {catMeta?.label || gap.category}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-center tabular-nums text-slate-600">
+                                {gap.currentScore}
+                              </td>
+                              <td className="px-4 py-3 text-center tabular-nums text-slate-600">
+                                {gap.targetScore}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <span
+                                  className="inline-block rounded-full px-2 py-0.5 text-xs font-bold text-white"
+                                  style={{ backgroundColor: gapColor }}
+                                >
+                                  {gap.gapSize}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-xs text-slate-500 max-w-[160px] truncate">
+                                {gap.useCaseName}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Use Case Readiness Table */}
+              {scores.useCaseScores.length > 0 && (
+                <div>
+                  <h3 className="mb-3 text-sm font-semibold text-slate-700">
+                    Use Case Readiness
+                  </h3>
+                  <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          <th className="px-4 py-3">Use Case</th>
+                          <th className="px-4 py-3 text-center">Score</th>
+                          <th className="px-4 py-3 text-center">Status</th>
+                          <th className="px-4 py-3 text-center">Questions</th>
+                          <th className="px-4 py-3 text-center">Gaps</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {scores.useCaseScores.map((uc) => {
+                          const ucPct = Math.round(uc.percentage * 100);
+                          const ucThreshold =
+                            ASSESSMENT_STATUS_THRESHOLDS.find(
+                              (t) => uc.percentage >= t.min,
+                            );
+                          return (
+                            <tr
+                              key={uc.useCaseId}
+                              className="hover:bg-slate-50/60"
+                            >
+                              <td className="px-4 py-3 font-medium text-slate-800">
+                                {uc.useCaseName}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <span
+                                  className="font-bold tabular-nums"
+                                  style={{ color: ucThreshold?.color }}
+                                >
+                                  {ucPct}%
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <span
+                                  className="inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold text-white"
+                                  style={{
+                                    backgroundColor: ucThreshold?.color,
+                                  }}
+                                >
+                                  {ucThreshold?.label}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-center tabular-nums text-slate-600">
+                                {uc.mappedQuestionIds.length}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                {uc.gaps.length > 0 ? (
+                                  <span className="inline-block rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
+                                    {uc.gaps.length}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs font-medium" style={{ color: T.green }}>
+                                    OK
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </section>
+          );
+        })()}
       </main>
 
       {/* ── 6. Footer ──────────────────────────────────────────────────────── */}

@@ -450,3 +450,97 @@ export interface ImportedAnalysis {
     validationWarnings: string[];
   };
 }
+
+// =========================================================================
+// AI READINESS ASSESSMENT
+// =========================================================================
+
+export type AssessmentCategory = "skills" | "data" | "infrastructure" | "governance";
+
+export type MaturityLevel = 1 | 2 | 3 | 4 | 5;
+
+export type AssessmentStatus = "early_stage" | "building" | "developing" | "ready";
+
+export interface AssessmentQuestion {
+  id: string;
+  category: AssessmentCategory;
+  subCategory: string;
+  questionText: string;
+  hint: string;
+  weight: 1 | 2;
+  useCasesImpacted: string[];
+}
+
+export interface AssessmentAnswer {
+  questionId: string;
+  score: MaturityLevel | null;
+  notes: string;
+}
+
+export interface SubCategoryScore {
+  subCategory: string;
+  category: AssessmentCategory;
+  rawScore: number;
+  maxPossibleScore: number;
+  percentage: number;
+  status: AssessmentStatus;
+  questionCount: number;
+  answeredCount: number;
+}
+
+export interface CategoryScore {
+  category: AssessmentCategory;
+  rawScore: number;
+  maxPossibleScore: number;
+  percentage: number;
+  status: AssessmentStatus;
+  statusDescription: string;
+  subCategories: SubCategoryScore[];
+  questionCount: number;
+  answeredCount: number;
+}
+
+export interface UseCaseAssessmentScore {
+  useCaseId: string;
+  useCaseName: string;
+  rawScore: number;
+  maxPossibleScore: number;
+  percentage: number;
+  status: AssessmentStatus;
+  statusDescription: string;
+  mappedQuestionIds: string[];
+  gaps: AssessmentGap[];
+}
+
+export interface AssessmentGap {
+  questionId: string;
+  questionText: string;
+  category: AssessmentCategory;
+  subCategory: string;
+  currentScore: MaturityLevel;
+  targetScore: 4;
+  gapSize: number;
+  tip: string;
+}
+
+export interface CompositeAssessmentScore {
+  overallPercentage: number;
+  overallStatus: AssessmentStatus;
+  overallStatusDescription: string;
+  categories: CategoryScore[];
+  useCaseScores: UseCaseAssessmentScore[];
+  completionPercentage: number;
+  totalQuestions: number;
+  answeredQuestions: number;
+}
+
+export interface AssessmentData {
+  version: 1;
+  startedAt: string;
+  completedAt: string | null;
+  questions: AssessmentQuestion[];
+  answers: AssessmentAnswer[];
+  scores: CompositeAssessmentScore | null;
+  useCaseMappingStatus: "pending" | "running" | "complete" | "error";
+  gapGuidance: Record<string, string>;
+}

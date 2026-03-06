@@ -7,7 +7,7 @@ interface LayoutProps {
   children: ReactNode;
   projectId?: string;
   companyName?: string;
-  activeTab?: "setup" | "workshop" | "review" | "dashboard";
+  activeTab?: "setup" | "assess" | "workshop" | "review" | "dashboard";
 }
 
 export default function Layout({
@@ -74,6 +74,7 @@ export default function Layout({
           <div className="max-w-7xl mx-auto px-4 sm:px-6 flex gap-1">
             {[
               { key: "setup" as const, label: "Setup", path: `/project/${projectId}` },
+              { key: "assess" as const, label: "Assess", path: `/project/${projectId}/assessment` },
               { key: "workshop" as const, label: "Workshop", path: `/project/${projectId}/workshop` },
               { key: "review" as const, label: "Review", path: `/project/${projectId}/review` },
               { key: "dashboard" as const, label: "Dashboard", path: `/project/${projectId}/dashboard` },

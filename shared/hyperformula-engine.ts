@@ -626,3 +626,185 @@ export class ProjectionEngine {
     this.hf.destroy();
   }
 }
+
+// =========================================================================
+// ASSESSMENT CALCULATION ENGINE
+// =========================================================================
+
+const ASSESS_Q = {
+  WEIGHT: 0,
+  SCORE: 1,
+  WEIGHTED_SCORE: 2,
+  MAX_WEIGHTED_SCORE: 3,
+  CATEGORY_INDEX: 4,
+  IS_ANSWERED: 5,
+};
+
+const ASSESS_CAT = {
+  INDEX: 0,
+  RAW_SCORE: 1,
+  MAX_SCORE: 2,
+  PERCENTAGE: 3,
+  ANSWERED_COUNT: 4,
+};
+
+export class AssessmentCalculationEngine {
+  private hf: HyperFormula;
+  private questionsSheetId: number;
+  private categoriesSheetId: number;
+  private useCasesSheetId: number;
+  private questionCount: number = 0;
+  private useCaseCount: number = 0;
+
+  constructor() {
+    this.hf = HyperFormula.buildEmpty({ licenseKey: "gpl-v3", useArrayArithmetic: true });
+    this.hf.addSheet("Questions");
+    this.hf.addSheet("Categories");
+    this.hf.addSheet("UseCases");
+    this.questionsSheetId = this.hf.getSheetId("Questions")!;
+    this.categoriesSheetId = this.hf.getSheetId("Categories")!;
+    this.useCasesSheetId = this.hf.getSheetId("UseCases")!;
+  }
+
+  /**
+   * Load questions and compute all scores.
+   * @param questions - Array of {weight, score (0=unanswered), categoryIndex (0-3)}
+   * @param useCaseMappings - Array of arrays, each inner array contains question indices (0-based) mapped to that use case
+   */
+  loadAndCalculate(
+    questions: Array<{ weight: number; score: number; categoryIndex: number }>,
+    useCaseMappings: Array<{ questionIndices: number[] }>,
+  ): {
+    categoryScores: Array<{ rawScore: number; maxScore: number; percentage: number; answeredCount: number }>;
+    useCaseScores: Array<{ rawScore: number; maxScore: number; percentage: number }>;
+    overallPercentage: number;
+  } {
+    this.questionCount = questions.length;
+    this.useCaseCount = useCaseMappings.length;
+
+    // --- Questions Sheet ---
+    const qData: (number | string)[][] = [];
+    for (let i = 0; i < questions.length; i++) {
+      const q = questions[i];
+      const row = i + 1; // 1-indexed for formulas
+      qData.push([
+        q.weight,                                    // A: weight
+        q.score,                                     // B: score (0 if unanswered)
+        `=A${row}*B${row}`,                         // C: weighted score
+        `=A${row}*5`,                               // D: max weighted score
+        q.categoryIndex,                             // E: category index
+        `=IF(B${row}>0,1,0)`,                       // F: is answered
+      ]);
+    }
+    this.hf.setSheetContent(this.questionsSheetId, qData);
+
+    // --- Categories Sheet (4 categories + 1 overall row) ---
+    const catData: (number | string)[][] = [];
+    for (let c = 0; c < 4; c++) {
+      const row = c + 1;
+      catData.push([
+        c,                                                                    // A: index
+        `=SUMPRODUCT((Questions!E1:E${questions.length}=${c})*Questions!C1:C${questions.length})`,  // B: raw score
+        `=SUMPRODUCT((Questions!E1:E${questions.length}=${c})*Questions!D1:D${questions.length})`,  // C: max score
+        `=IF(C${row}>0,B${row}/C${row},0)`,                                  // D: percentage
+        `=SUMPRODUCT((Questions!E1:E${questions.length}=${c})*Questions!F1:F${questions.length})`,  // E: answered count
+      ]);
+    }
+    // Overall row (row 5)
+    catData.push([
+      -1,                             // A: sentinel
+      `=SUM(B1:B4)`,                 // B: total raw
+      `=SUM(C1:C4)`,                 // C: total max
+      `=IF(C5>0,B5/C5,0)`,          // D: overall percentage
+      `=SUM(E1:E4)`,                 // E: total answered
+    ]);
+    this.hf.setSheetContent(this.categoriesSheetId, catData);
+
+    // --- UseCases Sheet ---
+    if (useCaseMappings.length > 0) {
+      const ucData: (number | string)[][] = [];
+      for (let u = 0; u < useCaseMappings.length; u++) {
+        const mapping = useCaseMappings[u];
+        const row: (number | string)[] = [];
+
+        // Columns A through N (one per question): 0 or 1 flag
+        for (let q = 0; q < questions.length; q++) {
+          row.push(mapping.questionIndices.includes(q) ? 1 : 0);
+        }
+
+        // Next 3 columns: raw score, max score, percentage
+        const flagRange = `A${u + 1}:${this.colLetter(questions.length - 1)}${u + 1}`;
+        const rawCol = this.colLetter(questions.length);
+        const maxCol = this.colLetter(questions.length + 1);
+        const pctCol = this.colLetter(questions.length + 2);
+
+        row.push(`=SUMPRODUCT(${flagRange},Questions!C1:C${questions.length})`);    // raw
+        row.push(`=SUMPRODUCT(${flagRange},Questions!D1:D${questions.length})`);    // max
+        row.push(`=IF(${maxCol}${u + 1}>0,${rawCol}${u + 1}/${maxCol}${u + 1},0)`);  // pct
+
+        ucData.push(row);
+      }
+      this.hf.setSheetContent(this.useCasesSheetId, ucData);
+    }
+
+    // --- Extract results ---
+    return this.extractResults();
+  }
+
+  /** Update a single question's score and recalculate */
+  updateScore(questionIndex: number, newScore: number): void {
+    const row = questionIndex; // 0-indexed in HyperFormula
+    this.hf.setCellContents(
+      { sheet: this.questionsSheetId, row, col: ASSESS_Q.SCORE },
+      [[newScore]],
+    );
+  }
+
+  private extractResults(): {
+    categoryScores: Array<{ rawScore: number; maxScore: number; percentage: number; answeredCount: number }>;
+    useCaseScores: Array<{ rawScore: number; maxScore: number; percentage: number }>;
+    overallPercentage: number;
+  } {
+    const categoryScores: Array<{ rawScore: number; maxScore: number; percentage: number; answeredCount: number }> = [];
+    for (let c = 0; c < 4; c++) {
+      categoryScores.push({
+        rawScore: this.getNum(this.categoriesSheetId, c, ASSESS_CAT.RAW_SCORE),
+        maxScore: this.getNum(this.categoriesSheetId, c, ASSESS_CAT.MAX_SCORE),
+        percentage: this.getNum(this.categoriesSheetId, c, ASSESS_CAT.PERCENTAGE),
+        answeredCount: this.getNum(this.categoriesSheetId, c, ASSESS_CAT.ANSWERED_COUNT),
+      });
+    }
+
+    const overallPercentage = this.getNum(this.categoriesSheetId, 4, ASSESS_CAT.PERCENTAGE);
+
+    const useCaseScores: Array<{ rawScore: number; maxScore: number; percentage: number }> = [];
+    for (let u = 0; u < this.useCaseCount; u++) {
+      useCaseScores.push({
+        rawScore: this.getNum(this.useCasesSheetId, u, this.questionCount),
+        maxScore: this.getNum(this.useCasesSheetId, u, this.questionCount + 1),
+        percentage: this.getNum(this.useCasesSheetId, u, this.questionCount + 2),
+      });
+    }
+
+    return { categoryScores, useCaseScores, overallPercentage };
+  }
+
+  private getNum(sheetId: number, row: number, col: number): number {
+    const val = this.hf.getCellValue({ sheet: sheetId, row, col });
+    return typeof val === "number" ? val : 0;
+  }
+
+  private colLetter(index: number): string {
+    let result = "";
+    let n = index;
+    while (n >= 0) {
+      result = String.fromCharCode(65 + (n % 26)) + result;
+      n = Math.floor(n / 26) - 1;
+    }
+    return result;
+  }
+
+  destroy(): void {
+    this.hf.destroy();
+  }
+}

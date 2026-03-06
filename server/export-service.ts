@@ -1,6 +1,8 @@
 import ExcelJS from "exceljs";
 import type { Project, Scenario } from "@shared/schema";
 import { formatCurrency, parseCurrencyString } from "@shared/formulas";
+import type { AssessmentData, AssessmentAnswer, CategoryScore } from "@shared/types";
+import { CATEGORY_METADATA, ASSESSMENT_STATUS_THRESHOLDS } from "@shared/assessment-questions";
 
 // =========================================================================
 // EXCEL EXPORT
@@ -174,6 +176,196 @@ export async function generateExcelReport(
       phase: p.recommendedPhase,
     }),
   );
+
+  // =========================================================================
+  // ASSESSMENT SHEETS (only when assessment data with scores exists)
+  // =========================================================================
+
+  const assessment = scenario.assessment as AssessmentData | null;
+  if (assessment?.scores) {
+    const scores = assessment.scores;
+    const answers = assessment.answers || [];
+    const questions = assessment.questions || [];
+    const gapGuidance = assessment.gapGuidance || {};
+
+    // Build a lookup: questionId → answer score
+    const answerMap = new Map<string, number | null>();
+    answers.forEach((a: AssessmentAnswer) => answerMap.set(a.questionId, a.score));
+
+    // Helper to get status label from key
+    const statusLabel = (key: string): string => {
+      const found = ASSESSMENT_STATUS_THRESHOLDS.find((t) => t.key === key);
+      return found?.label || key;
+    };
+
+    // --- Assessment Summary sheet ---
+    const assessSummarySheet = workbook.addWorksheet("Assessment Summary");
+    assessSummarySheet.columns = [
+      { header: "", key: "a", width: 30 },
+      { header: "", key: "b", width: 18 },
+      { header: "", key: "c", width: 18 },
+      { header: "", key: "d", width: 14 },
+      { header: "", key: "e", width: 18 },
+    ];
+
+    // Row 1: Title
+    const titleRow = assessSummarySheet.getRow(1);
+    titleRow.getCell(1).value = "AI Readiness Assessment Summary";
+    titleRow.getCell(1).font = { bold: true, size: 14, color: { argb: "FF001278" } };
+    titleRow.height = 28;
+
+    // Row 3: Overall score
+    const overallRow = assessSummarySheet.getRow(3);
+    overallRow.getCell(1).value = "Overall Score";
+    overallRow.getCell(1).font = { bold: true, size: 11 };
+    overallRow.getCell(2).value = `${Math.round(scores.overallPercentage)}%`;
+    overallRow.getCell(2).font = { bold: true, size: 11 };
+    overallRow.getCell(3).value = statusLabel(scores.overallStatus);
+    overallRow.getCell(3).font = { bold: true, size: 11 };
+
+    // Row 5: Category Scores header
+    const catHeaderRow = assessSummarySheet.getRow(5);
+    catHeaderRow.values = ["Category", "Score", "Status", "Answered", "Total Questions"];
+    catHeaderRow.eachCell((cell) => {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF001278" } };
+      cell.font = { color: { argb: "FFFFFFFF" }, bold: true, size: 11 };
+      cell.alignment = { vertical: "middle" };
+    });
+    catHeaderRow.height = 24;
+
+    // Category rows
+    let currentRow = 6;
+    scores.categories.forEach((cat: CategoryScore) => {
+      const meta = CATEGORY_METADATA[cat.category];
+      const row = assessSummarySheet.getRow(currentRow);
+      row.values = [
+        meta?.label || cat.category,
+        `${Math.round(cat.percentage)}%`,
+        statusLabel(cat.status),
+        cat.answeredCount,
+        cat.questionCount,
+      ];
+      row.getCell(1).font = { bold: true };
+      currentRow++;
+
+      // Sub-category rows (indented)
+      cat.subCategories.forEach((sub) => {
+        const subRow = assessSummarySheet.getRow(currentRow);
+        subRow.values = [
+          `  ${sub.subCategory}`,
+          `${Math.round(sub.percentage)}%`,
+          statusLabel(sub.status),
+          sub.answeredCount,
+          sub.questionCount,
+        ];
+        subRow.getCell(1).font = { italic: true, color: { argb: "FF64748B" } };
+        subRow.getCell(2).font = { color: { argb: "FF64748B" } };
+        subRow.getCell(3).font = { color: { argb: "FF64748B" } };
+        currentRow++;
+      });
+    });
+
+    // --- Assessment Questions sheet ---
+    const questionsSheet = workbook.addWorksheet("Assessment Questions");
+    questionsSheet.columns = [
+      { header: "Question ID", key: "id", width: 12 },
+      { header: "Category", key: "category", width: 18 },
+      { header: "Sub-Category", key: "subCategory", width: 22 },
+      { header: "Question", key: "question", width: 60 },
+      { header: "Weight", key: "weight", width: 8 },
+      { header: "Score", key: "score", width: 8 },
+      { header: "Max Score", key: "maxScore", width: 10 },
+    ];
+    styleHeader(questionsSheet);
+
+    questions.forEach((q) => {
+      const answer = answerMap.get(q.id);
+      const score = answer != null ? answer : 0;
+      const maxScore = q.weight * 5;
+      const meta = CATEGORY_METADATA[q.category];
+      const row = questionsSheet.addRow({
+        id: q.id,
+        category: meta?.label || q.category,
+        subCategory: q.subCategory,
+        question: q.questionText,
+        weight: q.weight,
+        score,
+        maxScore,
+      });
+
+      // Conditional formatting: score cell background
+      const scoreCell = row.getCell(6);
+      if (answer != null) {
+        if (answer <= 2) {
+          scoreCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEE2E2" } };
+          scoreCell.font = { color: { argb: "FF991B1B" }, bold: true };
+        } else if (answer === 3) {
+          scoreCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEF3C7" } };
+          scoreCell.font = { color: { argb: "FF92400E" }, bold: true };
+        } else {
+          scoreCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDCFCE7" } };
+          scoreCell.font = { color: { argb: "FF166534" }, bold: true };
+        }
+      }
+    });
+
+    // --- Gap Analysis sheet ---
+    const gapSheet = workbook.addWorksheet("Gap Analysis");
+    gapSheet.columns = [
+      { header: "Question ID", key: "id", width: 12 },
+      { header: "Category", key: "category", width: 18 },
+      { header: "Question", key: "question", width: 60 },
+      { header: "Current Score", key: "currentScore", width: 14 },
+      { header: "Weight", key: "weight", width: 8 },
+      { header: "Gap Size", key: "gapSize", width: 10 },
+      { header: "AI Guidance", key: "guidance", width: 60 },
+    ];
+    styleHeader(gapSheet);
+
+    // Collect gaps: questions with score < 3
+    const gaps: Array<{
+      id: string;
+      category: string;
+      question: string;
+      currentScore: number;
+      weight: number;
+      gapSize: number;
+      guidance: string;
+    }> = [];
+
+    questions.forEach((q) => {
+      const answer = answerMap.get(q.id);
+      const score = answer != null ? answer : 0;
+      if (score < 3) {
+        const meta = CATEGORY_METADATA[q.category];
+        const gapSize = (q.weight * 5) - (score * q.weight);
+        gaps.push({
+          id: q.id,
+          category: meta?.label || q.category,
+          question: q.questionText,
+          currentScore: score,
+          weight: q.weight,
+          gapSize,
+          guidance: gapGuidance[q.id] || "",
+        });
+      }
+    });
+
+    // Sort by gap size descending
+    gaps.sort((a, b) => b.gapSize - a.gapSize);
+
+    gaps.forEach((g) => {
+      gapSheet.addRow({
+        id: g.id,
+        category: g.category,
+        question: g.question,
+        currentScore: g.currentScore,
+        weight: g.weight,
+        gapSize: g.gapSize,
+        guidance: g.guidance,
+      });
+    });
+  }
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);

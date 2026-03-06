@@ -4,6 +4,8 @@
 // Pure TypeScript — no external math library needed.
 // =========================================================================
 
+import type { AssessmentStatus, AssessmentCategory } from "./types";
+
 // -------------------------------------------------------------------------
 // BENEFIT CALCULATIONS
 // -------------------------------------------------------------------------
@@ -509,4 +511,83 @@ export function crossValidateUseCases(
       scaleFactor,
     },
   };
+}
+
+// =========================================================================
+// ASSESSMENT SCORING (Deterministic)
+// =========================================================================
+
+export function determineAssessmentStatus(percentage: number): AssessmentStatus {
+  if (percentage >= 0.80) return "ready";
+  if (percentage >= 0.60) return "developing";
+  if (percentage >= 0.40) return "building";
+  return "early_stage";
+}
+
+export function getAssessmentStatusDescription(status: AssessmentStatus): string {
+  const descriptions: Record<AssessmentStatus, string> = {
+    ready: "Your organization has strong foundations for AI implementation",
+    developing: "Good progress with some gaps to address before scaling",
+    building: "Foundational work needed in key areas",
+    early_stage: "Significant investment required across multiple dimensions",
+  };
+  return descriptions[status];
+}
+
+export function calculateAssessmentCategoryScore(
+  answers: Array<{ score: number; weight: number }>,
+): { rawScore: number; maxScore: number; percentage: number; status: AssessmentStatus } {
+  let rawScore = 0;
+  let maxScore = 0;
+  for (const a of answers) {
+    rawScore += a.score * a.weight;
+    maxScore += 5 * a.weight;
+  }
+  const percentage = maxScore > 0 ? rawScore / maxScore : 0;
+  return { rawScore, maxScore, percentage, status: determineAssessmentStatus(percentage) };
+}
+
+export function calculateAssessmentCompositeScore(
+  categoryScores: Array<{ rawScore: number; maxScore: number }>,
+): { overallPercentage: number; overallStatus: AssessmentStatus } {
+  let totalRaw = 0;
+  let totalMax = 0;
+  for (const c of categoryScores) {
+    totalRaw += c.rawScore;
+    totalMax += c.maxScore;
+  }
+  const overallPercentage = totalMax > 0 ? totalRaw / totalMax : 0;
+  return { overallPercentage, overallStatus: determineAssessmentStatus(overallPercentage) };
+}
+
+export function identifyAssessmentGaps(
+  questions: Array<{ id: string; questionText: string; category: AssessmentCategory; subCategory: string; weight: number }>,
+  answers: Array<{ questionId: string; score: number | null }>,
+  threshold: number = 3,
+): Array<{ questionId: string; questionText: string; category: AssessmentCategory; subCategory: string; currentScore: number; gapSize: number }> {
+  const gaps: Array<{ questionId: string; questionText: string; category: AssessmentCategory; subCategory: string; currentScore: number; gapSize: number }> = [];
+  const answerMap = new Map(answers.map(a => [a.questionId, a.score]));
+
+  for (const q of questions) {
+    const score = answerMap.get(q.id);
+    if (score != null && score < threshold) {
+      gaps.push({
+        questionId: q.id,
+        questionText: q.questionText,
+        category: q.category,
+        subCategory: q.subCategory,
+        currentScore: score,
+        gapSize: 4 - score, // target is always 4 ("Scaling")
+      });
+    }
+  }
+
+  // Sort by gap size (largest first), then by weight (highest first)
+  const weightMap = new Map(questions.map(q => [q.id, q.weight]));
+  gaps.sort((a, b) => {
+    if (b.gapSize !== a.gapSize) return b.gapSize - a.gapSize;
+    return (weightMap.get(b.questionId) || 0) - (weightMap.get(a.questionId) || 0);
+  });
+
+  return gaps;
 }

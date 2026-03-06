@@ -332,6 +332,7 @@ export async function registerRoutes(server: Server, app: Express) {
       workflow_maps: "workflowMaps",
       executive_summary: "executiveSummary",
       workforce_params: "workforceParams",
+      assessment: "assessment",
     };
 
     const stepNumMap: Record<number, string> = {
@@ -962,6 +963,136 @@ IMPORTANT:
   });
 
   // =====================================================================
+  // AI — ASSESSMENT MODULE
+  // =====================================================================
+
+  app.post("/api/ai/assessment-mapping", async (req, res) => {
+    const { useCases, questions } = req.body;
+    if (!useCases?.length || !questions?.length) {
+      return res.status(400).json({ message: "Missing useCases or questions" });
+    }
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      return res.status(503).json({ message: "AI assistant not configured. Set ANTHROPIC_API_KEY." });
+    }
+
+    try {
+      const Anthropic = (await import("@anthropic-ai/sdk")).default;
+      const client = new Anthropic({ apiKey });
+
+      const useCaseList = useCases.map((uc: any) => `- ID: ${uc.id}, Name: ${uc.name}, Description: ${uc.description || "N/A"}`).join("\n");
+      const questionList = questions.map((q: any) => `- ID: ${q.id}, Category: ${q.category}, SubCategory: ${q.subCategory}, Question: ${q.questionText}`).join("\n");
+
+      const response = await client.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 4096,
+        messages: [{
+          role: "user",
+          content: `You are analyzing an AI readiness assessment for an organization. Map each assessment question to the use cases it directly impacts.
+
+A question impacts a use case if the capability it assesses would directly affect the success of implementing that use case.
+
+USE CASES:
+${useCaseList}
+
+ASSESSMENT QUESTIONS:
+${questionList}
+
+Return ONLY valid JSON with this exact format:
+{
+  "mappings": {
+    "QUESTION_ID": ["USE_CASE_ID_1", "USE_CASE_ID_2"],
+    ...
+  }
+}
+
+Rules:
+- Each question should map to 0-5 use cases based on direct relevance
+- Not every question maps to every use case — be selective
+- Focus on direct impact relationships, not tangential connections
+- Data-related questions map to use cases that need specific data types
+- Infrastructure questions map to use cases with specific compute/platform needs
+- Skills questions map to use cases requiring specific expertise
+- Governance questions map to use cases with compliance/risk implications`
+        }],
+      });
+
+      const text = response.content[0].type === "text" ? response.content[0].text : "";
+      // Extract JSON from response (handle markdown code blocks)
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        return res.status(500).json({ message: "Failed to parse AI response" });
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      res.json(parsed);
+    } catch (error: any) {
+      console.error("Assessment mapping error:", error.message);
+      res.status(500).json({ message: "Failed to generate assessment mapping" });
+    }
+  });
+
+  app.post("/api/ai/assessment-guidance", async (req, res) => {
+    const { gaps, companyName, industry } = req.body;
+    if (!gaps?.length) {
+      return res.status(400).json({ message: "No gaps provided" });
+    }
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      return res.status(503).json({ message: "AI assistant not configured. Set ANTHROPIC_API_KEY." });
+    }
+
+    try {
+      const Anthropic = (await import("@anthropic-ai/sdk")).default;
+      const client = new Anthropic({ apiKey });
+
+      const gapList = gaps.map((g: any) => `- ${g.questionId} (${g.category} > ${g.subCategory}): "${g.questionText}" — Current: Level ${g.currentScore}, Target: Level 4, Gap: ${g.gapSize}`).join("\n");
+
+      const response = await client.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 4096,
+        messages: [{
+          role: "user",
+          content: `You are advising ${companyName || "an organization"}${industry ? ` in the ${industry} industry` : ""} on improving their AI readiness.
+
+The following gaps were identified in their assessment. For each gap, provide a concise, actionable recommendation (1-2 sentences) explaining what specific steps the organization should take to improve from their current maturity level to at least Level 4 (Scaling).
+
+GAPS:
+${gapList}
+
+Return ONLY valid JSON with this exact format:
+{
+  "guidance": {
+    "QUESTION_ID": "Actionable recommendation text here",
+    ...
+  }
+}
+
+Guidelines:
+- Be specific and actionable, not generic
+- Reference industry best practices where relevant
+- Consider the organization's current level when recommending next steps
+- Prioritize quick wins where possible`
+        }],
+      });
+
+      const text = response.content[0].type === "text" ? response.content[0].text : "";
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        return res.status(500).json({ message: "Failed to parse AI response" });
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      res.json(parsed);
+    } catch (error: any) {
+      console.error("Assessment guidance error:", error.message);
+      res.status(500).json({ message: "Failed to generate assessment guidance" });
+    }
+  });
+
+  // =====================================================================
   // EXPORT & SHARING
   // =====================================================================
 
@@ -1017,6 +1148,7 @@ IMPORTANT:
       multiYear: scenario.multiYear || null,
       frictionRecovery: scenario.frictionRecovery || null,
       executiveSummary: (scenario.executiveDashboard as any)?.executiveSummary || scenario.executiveSummary || null,
+      assessment: scenario.assessment || null,
     });
   });
 
@@ -1222,6 +1354,34 @@ IMPORTANT:
     res.setHeader("Content-Type", "application/json");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.send(JSON.stringify(exportData, null, 2));
+  });
+
+  app.get("/api/projects/:id/assessment-export", async (req, res) => {
+    const project = await storage.getProject(req.params.id);
+    if (!project) return res.status(404).json({ message: "Project not found" });
+
+    const scenario = await storage.getActiveScenario(project.id);
+    if (!scenario?.assessment) {
+      return res.status(404).json({ message: "No assessment data found" });
+    }
+
+    const exportData = {
+      exportedAt: new Date().toISOString(),
+      company: {
+        name: project.companyName,
+        industry: project.industry,
+      },
+      assessment: scenario.assessment,
+      useCases: scenario.useCases || [],
+      benefits: scenario.benefits || [],
+      readiness: scenario.readiness || [],
+      priorities: scenario.priorities || [],
+    };
+
+    const filename = `${(project.companyName || "assessment").replace(/[^a-zA-Z0-9]/g, "-")}-ai-assessment.json`;
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.json(exportData);
   });
 }
 

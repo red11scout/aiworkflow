@@ -4,6 +4,7 @@ import { Toaster } from "sonner";
 
 const Home = lazy(() => import("./pages/Home"));
 const Upload = lazy(() => import("./pages/Upload"));
+const Assessment = lazy(() => import("./pages/Assessment"));
 const Workflows = lazy(() => import("./pages/Workflows"));
 const ReviewRefine = lazy(() => import("./pages/ReviewRefine"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -25,6 +26,7 @@ export default function App() {
         <Switch>
           <Route path="/" component={Home} />
           <Route path="/project/:projectId" component={Upload} />
+          <Route path="/project/:projectId/assessment" component={Assessment} />
           <Route path="/project/:projectId/workshop" component={Workflows} />
           <Route path="/project/:projectId/review" component={ReviewRefine} />
           <Route path="/project/:projectId/dashboard" component={Dashboard} />
