@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useParams } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -105,6 +105,28 @@ export default function SharedReport() {
 
   // ── Derived data ──────────────────────────────────────────────────────────
   const workflowMaps: WorkflowMap[] = report?.workflowMaps || [];
+
+  // Build use case ID→name map for backward-compat (old data stored IDs as names)
+  const ucNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const uc of (report?.useCases || []) as { id: string; name: string }[]) {
+      if (uc.id && uc.name) map.set(uc.id, uc.name);
+    }
+    for (const wf of workflowMaps) {
+      if (wf.useCaseId && wf.useCaseName) map.set(wf.useCaseId, wf.useCaseName);
+    }
+    return map;
+  }, [report?.useCases, workflowMaps]);
+
+  // Helper to resolve use case ID to name
+  const resolveUcName = (nameOrId: string) => ucNameMap.get(nameOrId) || nameOrId;
+
+  // Auto-expand all workflow cards when data loads
+  useEffect(() => {
+    if (workflowMaps.length > 0) {
+      setExpandedWorkflows(new Set(workflowMaps.map(wf => wf.useCaseId)));
+    }
+  }, [workflowMaps.length]);
 
   const rows: UseCaseRow[] = useMemo(
     () => workflowMaps.map(computeWorkflowMetrics),
@@ -501,7 +523,7 @@ export default function SharedReport() {
                                               </span>
                                             )}
                                             {node.systems?.length > 0 && (
-                                              <span className="truncate max-w-[200px]">
+                                              <span>
                                                 | {node.systems.join(", ")}
                                               </span>
                                             )}
@@ -568,7 +590,7 @@ export default function SharedReport() {
                                               </span>
                                             )}
                                             {node.systems?.length > 0 && (
-                                              <span className="truncate max-w-[200px]">
+                                              <span>
                                                 | {node.systems.join(", ")}
                                               </span>
                                             )}
@@ -632,10 +654,10 @@ export default function SharedReport() {
             (t) => scores.overallPercentage >= t.min,
           );
 
-          // Gather top 5 gaps across all use cases
+          // Gather top 5 gaps across all use cases (resolve IDs to names for old data)
           const allGaps = scores.useCaseScores
             .flatMap((uc) =>
-              uc.gaps.map((g) => ({ ...g, useCaseName: uc.useCaseName })),
+              uc.gaps.map((g) => ({ ...g, useCaseName: resolveUcName(uc.useCaseName) })),
             )
             .sort((a, b) => b.gapSize - a.gapSize)
             .slice(0, 5);
@@ -770,7 +792,6 @@ export default function SharedReport() {
                       <thead>
                         <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                           <th className="px-4 py-3">Use Case</th>
-                          <th className="px-4 py-3 text-center">Score</th>
                           <th className="px-4 py-3 text-center">Status</th>
                           <th className="px-4 py-3 text-center">Questions</th>
                           <th className="px-4 py-3 text-center">Gaps</th>
@@ -789,15 +810,7 @@ export default function SharedReport() {
                               className="hover:bg-slate-50/60"
                             >
                               <td className="px-4 py-3 font-medium text-slate-800">
-                                {uc.useCaseName}
-                              </td>
-                              <td className="px-4 py-3 text-center">
-                                <span
-                                  className="font-bold tabular-nums"
-                                  style={{ color: ucThreshold?.color }}
-                                >
-                                  {ucPct}%
-                                </span>
+                                {resolveUcName(uc.useCaseName)}
                               </td>
                               <td className="px-4 py-3 text-center">
                                 <span

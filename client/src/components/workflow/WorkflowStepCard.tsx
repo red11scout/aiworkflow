@@ -417,13 +417,6 @@ export function WorkflowStepCard({
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
-              <div className="ml-1">
-                {isExpanded ? (
-                  <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                ) : (
-                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                )}
-              </div>
             </div>
           </div>
 
@@ -436,6 +429,16 @@ export function WorkflowStepCard({
 
           {/* Badge row */}
           <div className="flex flex-wrap gap-1.5 mt-2">{renderBadges()}</div>
+
+          {/* Expand/Collapse indicator — bottom-left */}
+          <div className="flex items-center gap-1 text-muted-foreground mt-1">
+            {isExpanded ? (
+              <ChevronUp className="h-4 w-4" />
+            ) : (
+              <ChevronDown className="h-4 w-4" />
+            )}
+            <span className="text-xs">{isExpanded ? "Collapse" : "Expand"}</span>
+          </div>
         </div>
       </div>
 

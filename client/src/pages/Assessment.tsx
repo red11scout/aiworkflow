@@ -1,8 +1,8 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useParams } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Sparkles, Loader2 } from "lucide-react";
+import { Sparkles, Loader2, Download, Upload as UploadIcon } from "lucide-react";
 import Layout from "@/components/Layout";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -60,6 +60,9 @@ export default function Assessment() {
   const [mappingStatus, setMappingStatus] = useState<string>("pending");
   const [activeTab, setActiveTab] = useState<string>("skills");
   const [isLoadingGuidance, setIsLoadingGuidance] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
 
   // Initialize assessment data from scenario or create new
   useEffect(() => {
@@ -92,8 +95,9 @@ export default function Assessment() {
     if (questions.length === 0 || answers.length === 0) return null;
     const answeredCount = answers.filter(a => a.score != null).length;
     if (answeredCount === 0) return null;
-    return calculateAssessmentScores(questions, answers);
-  }, [questions, answers]);
+    const ucNameMap = new Map(useCases.map(uc => [uc.id, uc.name]));
+    return calculateAssessmentScores(questions, answers, ucNameMap);
+  }, [questions, answers, useCases]);
 
   // Save mutation
   const saveMutation = useMutation({
@@ -221,6 +225,83 @@ export default function Assessment() {
     }
   };
 
+  // Download assessment template Excel
+  const handleDownloadTemplate = async () => {
+    if (!projectId) return;
+    setIsDownloading(true);
+    try {
+      const response = await fetch(`/api/projects/${projectId}/assessment-template`, {
+        headers: { "X-Owner-Token": localStorage.getItem("owner_token") || "" },
+      });
+      if (!response.ok) throw new Error("Download failed");
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${project?.companyName || "Assessment"}_AI_Assessment_Template.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Assessment template downloaded");
+    } catch (e) {
+      toast.error("Failed to download template");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  // Upload completed assessment Excel
+  const handleUploadAssessment = async (file: File) => {
+    if (!file.name.endsWith(".xlsx") && !file.name.endsWith(".xls")) {
+      toast.error("Please upload an Excel file (.xlsx)");
+      return;
+    }
+    setIsUploading(true);
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const base64 = btoa(
+        new Uint8Array(arrayBuffer).reduce(
+          (data, byte) => data + String.fromCharCode(byte),
+          "",
+        ),
+      );
+
+      const res = await apiRequest("POST", `/api/projects/${projectId}/assessment-upload`, {
+        fileBase64: base64,
+      });
+      const result = await res.json();
+
+      if (result.answers && result.answers.length > 0) {
+        setAnswers((prev) =>
+          prev.map((existing) => {
+            const parsed = result.answers.find(
+              (a: any) => a.questionId === existing.questionId,
+            );
+            if (!parsed) return existing;
+            return {
+              ...existing,
+              score: parsed.score ?? existing.score,
+              notes: parsed.notes || existing.notes,
+            };
+          }),
+        );
+
+        const scoredCount = result.answers.filter((a: any) => a.score != null).length;
+        toast.success(`Imported ${scoredCount} scores from Excel`);
+
+        if (result.warnings?.length > 0) {
+          toast.info(result.warnings[0]);
+        }
+      } else {
+        toast.warning("No scores found in the uploaded file");
+      }
+    } catch (e: any) {
+      toast.error(`Upload failed: ${e.message || "Unknown error"}`);
+    } finally {
+      setIsUploading(false);
+      if (uploadInputRef.current) uploadInputRef.current.value = "";
+    }
+  };
+
   const answeredCount = answers.filter(a => a.score != null).length;
 
   if (isLoading) {
@@ -245,6 +326,46 @@ export default function Assessment() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {/* Download assessment template */}
+            <Button
+              onClick={handleDownloadTemplate}
+              disabled={isDownloading}
+              variant="outline"
+              size="sm"
+            >
+              {isDownloading ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4 mr-2" />
+              )}
+              Download Template
+            </Button>
+
+            {/* Upload completed assessment */}
+            <Button
+              onClick={() => uploadInputRef.current?.click()}
+              disabled={isUploading}
+              variant="outline"
+              size="sm"
+            >
+              {isUploading ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <UploadIcon className="w-4 h-4 mr-2" />
+              )}
+              Upload Assessment
+            </Button>
+            <input
+              ref={uploadInputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleUploadAssessment(file);
+              }}
+            />
+
             {useCases.length > 0 && mappingStatus !== "complete" && (
               <Button
                 onClick={runMapping}

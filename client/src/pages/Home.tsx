@@ -141,7 +141,7 @@ export default function Home() {
         </div>
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-muted/80 border border-border/50 text-xs font-medium text-muted-foreground mb-6">
           <Sparkles className="w-3.5 h-3.5 text-[#02a2fd]" />
-          Powered by Claude AI
+          Powered by BlueAlly AI
         </div>
         <h1 className="text-4xl sm:text-5xl font-bold tracking-tight mb-5">
           <span className="text-gradient">AI Workflow Orchestration</span>

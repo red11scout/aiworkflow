@@ -8,6 +8,7 @@ const CATEGORY_ORDER: Array<"skills" | "data" | "infrastructure" | "governance">
 export function calculateAssessmentScores(
   questions: AssessmentQuestion[],
   answers: AssessmentAnswer[],
+  useCaseNameMap?: Map<string, string>,
 ): CompositeAssessmentScore {
   const answerMap = new Map(answers.map(a => [a.questionId, a]));
 
@@ -108,7 +109,7 @@ export function calculateAssessmentScores(
 
     return {
       useCaseId: ucId,
-      useCaseName: ucId, // Will be resolved from use case data in the component
+      useCaseName: useCaseNameMap?.get(ucId) || ucId,
       rawScore: hfResult.rawScore,
       maxPossibleScore: hfResult.maxScore,
       percentage: hfResult.percentage,

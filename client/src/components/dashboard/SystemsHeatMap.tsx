@@ -274,18 +274,18 @@ export function SystemsHeatMap({ summary, variant }: Props) {
                 ))}
               </div>
             )}
-            {/* Integration gap callout */}
+            {/* Integration gap callout — all systems by use case */}
             {integrationGaps.length > 0 && (
-              <div className="mt-3 rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">
-                <strong>{integrationGaps.length}</strong> system
-                {integrationGaps.length !== 1 ? "s" : ""} with manual/no
-                integration:{" "}
-                {integrationGaps
-                  .slice(0, 3)
-                  .map((g) => g.systemName)
-                  .join(", ")}
-                {integrationGaps.length > 3 &&
-                  ` +${integrationGaps.length - 3} more`}
+              <div className="mt-3 rounded-md bg-red-50 px-3 py-2 text-xs text-red-700 space-y-1">
+                <p className="font-semibold">
+                  {integrationGaps.length} system{integrationGaps.length !== 1 ? "s" : ""} with manual/no integration:
+                </p>
+                {integrationGaps.map((g) => (
+                  <div key={g.systemName}>
+                    <span className="font-medium">{g.systemName}</span>
+                    <span className="text-red-600/70"> — {g.useCases.join(", ")}</span>
+                  </div>
+                ))}
               </div>
             )}
           </div>
