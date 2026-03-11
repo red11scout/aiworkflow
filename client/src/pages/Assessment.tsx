@@ -72,7 +72,9 @@ export default function Assessment() {
       setQuestions(scenario.assessment.questions);
       setAnswers(scenario.assessment.answers);
       setGapGuidance(scenario.assessment.gapGuidance || {});
-      setMappingStatus(scenario.assessment.useCaseMappingStatus);
+      // Recovery: if mapping was interrupted (page reload while running), reset to pending
+      const savedStatus = scenario.assessment.useCaseMappingStatus;
+      setMappingStatus(savedStatus === "running" ? "pending" : savedStatus);
     } else {
       // Initialize new assessment
       const newQuestions: AssessmentQuestion[] = ASSESSMENT_QUESTIONS.map(q => ({

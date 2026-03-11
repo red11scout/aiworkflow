@@ -2,7 +2,7 @@ import ExcelJS from "exceljs";
 import type { Project, Scenario } from "@shared/schema";
 import { formatCurrency, parseCurrencyString } from "@shared/formulas";
 import type { AssessmentData, AssessmentAnswer, CategoryScore } from "@shared/types";
-import { CATEGORY_METADATA, ASSESSMENT_STATUS_THRESHOLDS } from "@shared/assessment-questions";
+import { CATEGORY_METADATA, ASSESSMENT_STATUS_THRESHOLDS, ASSESSMENT_QUESTIONS, MATURITY_LEVELS } from "@shared/assessment-questions";
 
 // =========================================================================
 // EXCEL EXPORT
@@ -365,10 +365,341 @@ export async function generateExcelReport(
         guidance: g.guidance,
       });
     });
+
+    // --- Use Case Readiness sheet ---
+    if (scores.useCaseScores && scores.useCaseScores.length > 0) {
+      const ucReadinessSheet = workbook.addWorksheet("Use Case Readiness");
+      ucReadinessSheet.columns = [
+        { header: "Use Case", key: "useCaseName", width: 35 },
+        { header: "Score", key: "score", width: 12 },
+        { header: "Status", key: "status", width: 14 },
+        { header: "Questions Mapped", key: "questionCount", width: 18 },
+        { header: "Gaps", key: "gapCount", width: 10 },
+      ];
+      styleHeader(ucReadinessSheet);
+
+      scores.useCaseScores.forEach((uc: any) => {
+        const pct = Math.round((uc.percentage ?? 0) * 100);
+        const row = ucReadinessSheet.addRow({
+          useCaseName: uc.useCaseName || uc.useCaseId,
+          score: `${pct}%`,
+          status: statusLabel(uc.status),
+          questionCount: uc.mappedQuestionIds?.length || 0,
+          gapCount: uc.gaps?.length || 0,
+        });
+
+        // Color-code score cell
+        const scoreCell = row.getCell(2);
+        if (pct >= 80) {
+          scoreCell.font = { bold: true, color: { argb: "FF166534" } };
+        } else if (pct >= 60) {
+          scoreCell.font = { bold: true, color: { argb: "FF1E40AF" } };
+        } else if (pct >= 40) {
+          scoreCell.font = { bold: true, color: { argb: "FF92400E" } };
+        } else {
+          scoreCell.font = { bold: true, color: { argb: "FF991B1B" } };
+        }
+      });
+    }
   }
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
+}
+
+// =========================================================================
+// ASSESSMENT TEMPLATE — downloadable Excel with use-case mappings
+// =========================================================================
+
+export async function generateAssessmentTemplate(
+  project: Project,
+  scenario: Scenario,
+): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "BlueAlly AI Workflow";
+  workbook.created = new Date();
+
+  const sheet = workbook.addWorksheet("Complete Assessment");
+
+  // Column widths
+  sheet.columns = [
+    { width: 5 },   // A: #
+    { width: 22 },  // B: Category
+    { width: 25 },  // C: Sub-Category
+    { width: 60 },  // D: Question
+    { width: 45 },  // E: Helpful Hint
+    { width: 18 },  // F: Maturity Level
+    { width: 40 },  // G: Notes
+    { width: 40 },  // H: Use Case Impact
+    { width: 8 },   // I: Weight
+  ];
+
+  const navyFill: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF001278" } };
+  const lightGrayFill: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF1F5F9" } };
+  const yellowFill: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFDE7" } };
+  const whiteFont: Partial<ExcelJS.Font> = { color: { argb: "FFFFFFFF" }, bold: true };
+  const navyFont: Partial<ExcelJS.Font> = { color: { argb: "FF001278" } };
+
+  // --- Rows 1-7: Instructions ---
+
+  // Row 1: Three sections — Title (A-D), Maturity Levels (E-F), Interpretation (G-I)
+  const r1 = sheet.getRow(1);
+  r1.height = 32;
+
+  // Title section (A1:D1)
+  sheet.mergeCells("A1:D1");
+  r1.getCell(1).value = "AI READINESS ASSESSMENT";
+  r1.getCell(1).font = { ...whiteFont, size: 14 };
+  for (let c = 1; c <= 4; c++) { r1.getCell(c).fill = navyFill; }
+
+  // Maturity definitions header (E1:F1)
+  sheet.mergeCells("E1:F1");
+  r1.getCell(5).value = "MATURITY LEVEL DEFINITIONS";
+  r1.getCell(5).font = { ...whiteFont, size: 11 };
+  for (let c = 5; c <= 6; c++) { r1.getCell(c).fill = navyFill; }
+
+  // Interpretation header (G1:I1)
+  sheet.mergeCells("G1:I1");
+  r1.getCell(7).value = "HOW TO INTERPRET YOUR RESULTS";
+  r1.getCell(7).font = { ...whiteFont, size: 11 };
+  for (let c = 7; c <= 9; c++) { r1.getCell(c).fill = navyFill; }
+
+  // Company info (rows 2-3, cols A-D)
+  sheet.getCell("B2").value = `Company: ${project.companyName || ""}`;
+  sheet.getCell("B2").font = { bold: true, size: 11 };
+  sheet.getCell("B3").value = `Date: ${new Date().toLocaleDateString()}`;
+
+  // Maturity level descriptions (rows 2-6, cols E-F)
+  const levels = Object.entries(MATURITY_LEVELS) as [string, { label: string; description: string }][];
+  levels.forEach(([num, lvl], i) => {
+    const row = i + 2; // rows 2-6
+    sheet.mergeCells(`E${row}:F${row}`);
+    sheet.getCell(`E${row}`).value = `Level ${num} - ${lvl.label}: ${lvl.description}`;
+    sheet.getCell(`E${row}`).font = { size: 9, color: { argb: "FF475569" } };
+  });
+
+  // Interpretation guide (rows 2-5, cols G-I)
+  const interpretations = [
+    "80-100%: Ready — Strong foundations for AI implementation",
+    "60-79%: Developing — Good progress with some gaps to address",
+    "40-59%: Building — Foundational work needed in key areas",
+    "0-39%: Early Stage — Significant investment required",
+  ];
+  interpretations.forEach((text, i) => {
+    sheet.mergeCells(`G${i + 2}:I${i + 2}`);
+    sheet.getCell(`G${i + 2}`).value = text;
+    sheet.getCell(`G${i + 2}`).font = { size: 9, color: { argb: "FF475569" } };
+  });
+
+  // Row 7: blank separator
+  sheet.getRow(7).height = 8;
+
+  // --- Row 8: Section header ---
+  sheet.mergeCells("A8:I8");
+  const r8 = sheet.getRow(8);
+  r8.getCell(1).value = "COMPLETE ASSESSMENT";
+  r8.getCell(1).font = { ...whiteFont, size: 12 };
+  r8.getCell(1).alignment = { horizontal: "center", vertical: "middle" };
+  r8.height = 28;
+  for (let c = 1; c <= 9; c++) { r8.getCell(c).fill = navyFill; }
+
+  // --- Row 9: Description ---
+  sheet.mergeCells("A9:I9");
+  const r9 = sheet.getRow(9);
+  r9.getCell(1).value = "Score each question from 1 (Exploring) to 5 (Realizing). Add notes in column G to capture context.";
+  r9.getCell(1).font = { italic: true, size: 10, color: { argb: "FF64748B" } };
+  r9.getCell(1).alignment = { horizontal: "center" };
+  r9.height = 22;
+
+  // --- Row 10: Column headers ---
+  const headerRow = sheet.getRow(10);
+  const headers = ["#", "Category", "Sub-Category", "Question", "Helpful Hint", "Maturity Level", "Notes", "Use Case Impact", "Weight"];
+  headerRow.values = headers;
+  headerRow.eachCell((cell) => {
+    cell.fill = navyFill;
+    cell.font = { ...whiteFont, size: 11 };
+    cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+  });
+  headerRow.height = 24;
+
+  // --- Build use case name lookup ---
+  const useCases = (scenario.useCases || []) as any[];
+  const ucNameMap = new Map<string, string>();
+  useCases.forEach((uc: any) => {
+    ucNameMap.set(uc.id, uc.name || uc.id);
+  });
+
+  // Get mapped questions from assessment data (if mapping complete)
+  const assessmentQuestions = scenario.assessment?.useCaseMappingStatus === "complete"
+    ? (scenario.assessment.questions || [])
+    : [];
+  const mappingLookup = new Map<string, string[]>();
+  assessmentQuestions.forEach((q: any) => {
+    if (q.useCasesImpacted?.length > 0) {
+      mappingLookup.set(q.id, q.useCasesImpacted);
+    }
+  });
+
+  // --- Rows 11-77: Questions ---
+  let currentCategory = "";
+  ASSESSMENT_QUESTIONS.forEach((q, idx) => {
+    const rowNum = 11 + idx;
+    const row = sheet.getRow(rowNum);
+    const meta = CATEGORY_METADATA[q.category];
+    const categoryLabel = meta?.label || q.category;
+
+    // Resolve use case IDs to names
+    const ucIds = mappingLookup.get(q.id) || [];
+    const ucNames = ucIds.map((id) => ucNameMap.get(id) || id).join(", ");
+
+    row.values = [
+      idx + 1,           // A: #
+      categoryLabel,     // B: Category
+      q.subCategory,     // C: Sub-Category
+      q.questionText,    // D: Question
+      q.hint,            // E: Helpful Hint
+      "",                // F: Maturity Level (blank — user fills in)
+      "",                // G: Notes (blank — user fills in)
+      ucNames,           // H: Use Case Impact
+      q.weight,          // I: Weight
+    ];
+
+    // Style: wrap text on question and hint columns
+    row.getCell(4).alignment = { wrapText: true, vertical: "top" };
+    row.getCell(5).alignment = { wrapText: true, vertical: "top" };
+    row.getCell(8).alignment = { wrapText: true, vertical: "top" };
+
+    // Highlight fill-in columns F and G
+    row.getCell(6).fill = yellowFill;
+    row.getCell(6).alignment = { horizontal: "center", vertical: "middle" };
+    row.getCell(7).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFBEB" } };
+
+    // Category section separator: light blue on first question of each new category
+    if (categoryLabel !== currentCategory) {
+      currentCategory = categoryLabel;
+      for (let c = 1; c <= 9; c++) {
+        if (c !== 6 && c !== 7) { // don't override yellow on F/G
+          row.getCell(c).fill = lightGrayFill;
+        }
+      }
+      row.getCell(2).font = { bold: true, ...navyFont };
+    }
+
+    // Data validation dropdown on Col F (Maturity Level)
+    row.getCell(6).dataValidation = {
+      type: "list",
+      allowBlank: true,
+      formulae: ['"1 - Exploring,2 - Planning,3 - Implementing,4 - Scaling,5 - Realizing"'],
+      showErrorMessage: true,
+      errorTitle: "Invalid Score",
+      error: "Please select a maturity level from 1 to 5",
+    };
+
+    row.height = 30;
+  });
+
+  // Freeze panes: freeze above row 11, after column 0 (scroll headers stay visible)
+  sheet.views = [{ state: "frozen", xSplit: 0, ySplit: 10, topLeftCell: "A11", activeCell: "F11" }];
+
+  // Auto-filter on header row
+  sheet.autoFilter = { from: "A10", to: "I10" };
+
+  // Print setup
+  sheet.pageSetup = { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+}
+
+// =========================================================================
+// ASSESSMENT UPLOAD — parse completed Excel back into answer data
+// =========================================================================
+
+export async function parseAssessmentUpload(
+  fileBuffer: Buffer,
+): Promise<{ answers: Array<{ questionId: string; score: number | null; notes: string }>; warnings: string[] }> {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(fileBuffer);
+
+  // Find the right sheet
+  const sheet = workbook.getWorksheet("Complete Assessment") || workbook.worksheets[0];
+  if (!sheet) throw new Error("No worksheet found in uploaded file");
+
+  // Find the data start row by scanning for the header row
+  let dataStartRow = 11; // default for our template
+  for (let r = 1; r <= 20; r++) {
+    const row = sheet.getRow(r);
+    const colA = getCellText(row.getCell(1)).toLowerCase();
+    const colD = getCellText(row.getCell(4)).toLowerCase();
+    if (colA === "#" && colD.includes("question")) {
+      dataStartRow = r + 1;
+      break;
+    }
+  }
+
+  const answers: Array<{ questionId: string; score: number | null; notes: string }> = [];
+  const warnings: string[] = [];
+  let parsedScores = 0;
+
+  for (let i = 0; i < ASSESSMENT_QUESTIONS.length; i++) {
+    const rowIdx = dataStartRow + i;
+    const row = sheet.getRow(rowIdx);
+    const questionId = ASSESSMENT_QUESTIONS[i].id;
+
+    // Validate row number matches (col A)
+    const rowNumVal = getCellText(row.getCell(1));
+    if (rowNumVal && parseInt(rowNumVal) !== i + 1) {
+      // Row number mismatch — try to continue but warn
+      warnings.push(`Row ${rowIdx}: Expected question #${i + 1} but found #${rowNumVal}`);
+    }
+
+    // Parse Col F: Maturity Level
+    const rawScore = getCellText(row.getCell(6));
+    let score: number | null = null;
+    if (rawScore && rawScore.trim() !== "") {
+      const scoreStr = rawScore.trim();
+      const numMatch = scoreStr.match(/^(\d)/);
+      if (numMatch) {
+        const num = parseInt(numMatch[1]);
+        if (num >= 1 && num <= 5) {
+          score = num;
+          parsedScores++;
+        } else {
+          warnings.push(`${questionId}: Score "${scoreStr}" out of range (1-5), skipped`);
+        }
+      } else {
+        warnings.push(`${questionId}: Could not parse score "${scoreStr}"`);
+      }
+    }
+
+    // Parse Col G: Notes
+    const notes = getCellText(row.getCell(7)).trim();
+
+    answers.push({ questionId, score, notes });
+  }
+
+  if (parsedScores === 0) {
+    warnings.push("No scores found. Ensure scores are in column F (Maturity Level).");
+  } else {
+    const blank = ASSESSMENT_QUESTIONS.length - parsedScores;
+    if (blank > 0) {
+      warnings.push(`Parsed ${parsedScores} of ${ASSESSMENT_QUESTIONS.length} scores (${blank} blank)`);
+    }
+  }
+
+  return { answers, warnings };
+}
+
+/** Extract text value from an ExcelJS cell (handles formulas, rich text, etc.) */
+function getCellText(cell: ExcelJS.Cell): string {
+  const val = cell.value;
+  if (val == null) return "";
+  if (typeof val === "object") {
+    if ("result" in val) return String((val as any).result ?? "");
+    if ("richText" in val) return (val as any).richText.map((rt: any) => rt.text).join("");
+    if ("text" in val) return String((val as any).text ?? "");
+  }
+  return String(val);
 }
 
 // =========================================================================

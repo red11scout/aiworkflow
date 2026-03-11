@@ -682,19 +682,31 @@ export class AssessmentCalculationEngine {
     this.questionCount = questions.length;
     this.useCaseCount = useCaseMappings.length;
 
+    // Column layout for Questions sheet:
+    // A: weight, B: score, C: weighted, D: max weighted, E: categoryIndex, F: isAnswered
+    // G onward: one column per use case with 0/1 flags (same column orientation as C/D)
+    const FIRST_UC_COL = 6;
+
     // --- Questions Sheet ---
     const qData: (number | string)[][] = [];
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
       const row = i + 1; // 1-indexed for formulas
-      qData.push([
+      const rowData: (number | string)[] = [
         q.weight,                                    // A: weight
         q.score,                                     // B: score (0 if unanswered)
         `=A${row}*B${row}`,                         // C: weighted score
         `=A${row}*5`,                               // D: max weighted score
         q.categoryIndex,                             // E: category index
         `=IF(B${row}>0,1,0)`,                       // F: is answered
-      ]);
+      ];
+
+      // Append use case flag columns (G, H, I, ...) — column vectors for SUMPRODUCT
+      for (let u = 0; u < useCaseMappings.length; u++) {
+        rowData.push(useCaseMappings[u].questionIndices.includes(i) ? 1 : 0);
+      }
+
+      qData.push(rowData);
     }
     this.hf.setSheetContent(this.questionsSheetId, qData);
 
@@ -721,28 +733,24 @@ export class AssessmentCalculationEngine {
     this.hf.setSheetContent(this.categoriesSheetId, catData);
 
     // --- UseCases Sheet ---
+    // Each use case row has 3 columns: raw, max, pct
+    // SUMPRODUCT uses column vectors from Questions sheet (flag col × score col)
     if (useCaseMappings.length > 0) {
       const ucData: (number | string)[][] = [];
+      const qLen = questions.length;
+
       for (let u = 0; u < useCaseMappings.length; u++) {
-        const mapping = useCaseMappings[u];
-        const row: (number | string)[] = [];
+        const ucFlagCol = this.colLetter(FIRST_UC_COL + u); // G, H, I, ...
+        const r = u + 1;
 
-        // Columns A through N (one per question): 0 or 1 flag
-        for (let q = 0; q < questions.length; q++) {
-          row.push(mapping.questionIndices.includes(q) ? 1 : 0);
-        }
-
-        // Next 3 columns: raw score, max score, percentage
-        const flagRange = `A${u + 1}:${this.colLetter(questions.length - 1)}${u + 1}`;
-        const rawCol = this.colLetter(questions.length);
-        const maxCol = this.colLetter(questions.length + 1);
-        const pctCol = this.colLetter(questions.length + 2);
-
-        row.push(`=SUMPRODUCT(${flagRange},Questions!C1:C${questions.length})`);    // raw
-        row.push(`=SUMPRODUCT(${flagRange},Questions!D1:D${questions.length})`);    // max
-        row.push(`=IF(${maxCol}${u + 1}>0,${rawCol}${u + 1}/${maxCol}${u + 1},0)`);  // pct
-
-        ucData.push(row);
+        ucData.push([
+          // A: raw score — SUMPRODUCT of flag column × weighted score column (both 67×1 columns)
+          `=SUMPRODUCT(Questions!${ucFlagCol}1:${ucFlagCol}${qLen},Questions!C1:C${qLen})`,
+          // B: max score — SUMPRODUCT of flag column × max weighted score column
+          `=SUMPRODUCT(Questions!${ucFlagCol}1:${ucFlagCol}${qLen},Questions!D1:D${qLen})`,
+          // C: percentage
+          `=IF(B${r}>0,A${r}/B${r},0)`,
+        ]);
       }
       this.hf.setSheetContent(this.useCasesSheetId, ucData);
     }
@@ -780,9 +788,9 @@ export class AssessmentCalculationEngine {
     const useCaseScores: Array<{ rawScore: number; maxScore: number; percentage: number }> = [];
     for (let u = 0; u < this.useCaseCount; u++) {
       useCaseScores.push({
-        rawScore: this.getNum(this.useCasesSheetId, u, this.questionCount),
-        maxScore: this.getNum(this.useCasesSheetId, u, this.questionCount + 1),
-        percentage: this.getNum(this.useCasesSheetId, u, this.questionCount + 2),
+        rawScore: this.getNum(this.useCasesSheetId, u, 0),
+        maxScore: this.getNum(this.useCasesSheetId, u, 1),
+        percentage: this.getNum(this.useCasesSheetId, u, 2),
       });
     }
 

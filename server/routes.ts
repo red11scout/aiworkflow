@@ -1383,6 +1383,53 @@ Guidelines:
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.json(exportData);
   });
+
+  // Assessment template Excel download (with use-case mappings pre-populated)
+  app.get("/api/projects/:id/assessment-template", async (req, res) => {
+    const project = await storage.getProject(req.params.id);
+    if (!project) return res.status(404).json({ message: "Project not found" });
+
+    const scenario = await storage.getActiveScenario(project.id);
+    if (!scenario) return res.status(404).json({ message: "Scenario not found" });
+
+    try {
+      const { generateAssessmentTemplate } = await import("./export-service");
+      const buffer = await generateAssessmentTemplate(project, scenario);
+
+      const filename = `${project.companyName?.replace(/[^a-zA-Z0-9]/g, "_") || "Assessment"}_AI_Assessment_Template.xlsx`;
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      );
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.send(buffer);
+    } catch (error: any) {
+      console.error("Assessment template generation error:", error.message);
+      res.status(500).json({ message: `Failed to generate template: ${error.message}` });
+    }
+  });
+
+  // Assessment Excel upload — parse completed template back into answer data
+  app.post("/api/projects/:id/assessment-upload", async (req, res) => {
+    const project = await storage.getProject(req.params.id);
+    if (!project) return res.status(404).json({ message: "Project not found" });
+
+    const { fileBase64 } = req.body;
+    if (!fileBase64) {
+      return res.status(400).json({ message: "Missing fileBase64 in request body" });
+    }
+
+    try {
+      const fileBuffer = Buffer.from(fileBase64, "base64");
+      const { parseAssessmentUpload } = await import("./export-service");
+      const result = await parseAssessmentUpload(fileBuffer);
+      res.json(result);
+    } catch (error: any) {
+      res.status(400).json({
+        message: `Failed to parse assessment file: ${error.message}`,
+      });
+    }
+  });
 }
 
 // =====================================================================
