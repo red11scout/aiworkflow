@@ -2,6 +2,7 @@ import { ReactNode } from "react";
 import { useLocation } from "wouter";
 import ThemeToggle from "./ThemeToggle";
 import { Home } from "lucide-react";
+import { useCustomerContext } from "@/lib/customerContext";
 
 interface LayoutProps {
   children: ReactNode;
@@ -17,6 +18,28 @@ export default function Layout({
   activeTab,
 }: LayoutProps) {
   const [, navigate] = useLocation();
+  const { isCustomerMode, navPrefix } = useCustomerContext();
+
+  function getTabPath(tab: string): string {
+    if (isCustomerMode) {
+      const tabMap: Record<string, string> = {
+        setup: `${navPrefix}/setup`,
+        assess: `${navPrefix}/assess`,
+        workshop: `${navPrefix}/workshop`,
+        review: `${navPrefix}/review`,
+        dashboard: `${navPrefix}/dashboard`,
+      };
+      return tabMap[tab] || navPrefix;
+    }
+    const tabMap: Record<string, string> = {
+      setup: `/project/${projectId}`,
+      assess: `/project/${projectId}/assessment`,
+      workshop: `/project/${projectId}/workshop`,
+      review: `/project/${projectId}/review`,
+      dashboard: `/project/${projectId}/dashboard`,
+    };
+    return tabMap[tab] || `/project/${projectId}`;
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -24,10 +47,7 @@ export default function Layout({
       <header className="glass-header bg-card/80 border-b border-border/50 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate("/")}
-              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
-            >
+            <div className="flex items-center gap-2">
               <img
                 src="/blueally-logo.png"
                 alt="BlueAlly"
@@ -41,7 +61,7 @@ export default function Layout({
               <span className="font-semibold text-foreground hidden sm:inline">
                 AI Workflow
               </span>
-            </button>
+            </div>
 
             {companyName && (
               <>
@@ -54,7 +74,7 @@ export default function Layout({
           </div>
 
           <div className="flex items-center gap-2">
-            {projectId && (
+            {projectId && !isCustomerMode && (
               <button
                 onClick={() => navigate("/")}
                 className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground"
@@ -73,15 +93,15 @@ export default function Layout({
         <nav className="bg-card/50 border-b border-border/30">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 flex gap-1">
             {[
-              { key: "setup" as const, label: "Setup", path: `/project/${projectId}` },
-              { key: "assess" as const, label: "Assess", path: `/project/${projectId}/assessment` },
-              { key: "workshop" as const, label: "Workshop", path: `/project/${projectId}/workshop` },
-              { key: "review" as const, label: "Review", path: `/project/${projectId}/review` },
-              { key: "dashboard" as const, label: "Dashboard", path: `/project/${projectId}/dashboard` },
+              { key: "setup" as const, label: "Setup" },
+              { key: "assess" as const, label: "Assess" },
+              { key: "workshop" as const, label: "Workshop" },
+              { key: "review" as const, label: "Review" },
+              { key: "dashboard" as const, label: "Dashboard" },
             ].map((tab) => (
               <button
                 key={tab.key}
-                onClick={() => navigate(tab.path)}
+                onClick={() => navigate(getTabPath(tab.key))}
                 className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === tab.key
                     ? "border-[#02a2fd] text-[#02a2fd]"

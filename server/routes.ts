@@ -3,6 +3,7 @@ import type { Server } from "http";
 import { storage } from "./storage";
 import { SCENARIO_MULTIPLIERS, parseCurrencyString, formatCurrency } from "@shared/formulas";
 import { nanoid } from "nanoid";
+import bcrypt from "bcryptjs";
 import type { WorkflowMap, InteractiveWorkflowNode, HITLCheckpoint } from "@shared/types";
 
 // ---------------------------------------------------------------------------
@@ -317,6 +318,18 @@ export async function registerRoutes(server: Server, app: Express) {
 
   // Update a specific section of a scenario
   app.put("/api/scenarios/:id/section/:step", async (req, res) => {
+    // Allow access via owner token OR customer edit token
+    const ownerToken = req.headers["x-owner-token"] as string;
+    const customerToken = req.headers["x-customer-token"] as string;
+
+    if (!ownerToken && customerToken) {
+      // Validate customer token matches a share link for this scenario
+      const link = await storage.getShareLinkByToken(customerToken);
+      if (!link || link.scenarioId !== req.params.id) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+    }
+
     const { data } = req.body;
 
     // Support both step numbers and section name strings
@@ -1150,6 +1163,95 @@ Guidelines:
       executiveSummary: (scenario.executiveDashboard as any)?.executiveSummary || scenario.executiveSummary || null,
       assessment: scenario.assessment || null,
     });
+  });
+
+  // =====================================================================
+  // CUSTOMER EDIT LINKS
+  // =====================================================================
+
+  // Admin creates a customer edit link
+  app.post("/api/projects/:id/customer-link", async (req, res) => {
+    const { customerName, password } = req.body;
+    if (!customerName) return res.status(400).json({ message: "Customer name is required" });
+
+    const project = await storage.getProject(req.params.id);
+    if (!project) return res.status(404).json({ message: "Project not found" });
+
+    const active = await storage.getActiveScenario(project.id);
+    if (!active) return res.status(400).json({ message: "No active scenario" });
+
+    const passwordHash = password ? await bcrypt.hash(password, 10) : null;
+    const code = nanoid(10);
+
+    const link = await storage.createCustomerEditLink(
+      project.id,
+      active.id,
+      code,
+      customerName,
+      passwordHash,
+    );
+
+    res.json({ shareCode: code, url: `/customer/${code}` });
+  });
+
+  // Public info for the password gate UI (no auth required)
+  app.get("/api/customer/:code/info", async (req, res) => {
+    const link = await storage.getEditableShareLink(req.params.code);
+    if (!link) return res.status(404).json({ message: "Link not found" });
+
+    const project = await storage.getProject(link.projectId);
+    if (!project) return res.status(404).json({ message: "Project not found" });
+
+    res.json({
+      customerName: link.customerName || "",
+      companyName: project.companyName,
+      requiresPassword: !!link.passwordHash,
+    });
+  });
+
+  // Verify password and issue session token
+  app.post("/api/customer/:code/verify", async (req, res) => {
+    const { password } = req.body;
+    const link = await storage.getEditableShareLink(req.params.code);
+    if (!link) return res.status(404).json({ message: "Link not found" });
+
+    // If no password was set, grant access immediately
+    if (!link.passwordHash) {
+      const token = `ce_${link.shareCode}_${Date.now()}_${nanoid(12)}`;
+      await storage.updateShareLinkToken(link.id, token);
+      return res.json({ token });
+    }
+
+    if (!password) return res.status(401).json({ message: "Password required" });
+
+    const valid = await bcrypt.compare(password, link.passwordHash);
+    if (!valid) return res.status(401).json({ message: "Invalid password" });
+
+    const token = `ce_${link.shareCode}_${Date.now()}_${nanoid(12)}`;
+    await storage.updateShareLinkToken(link.id, token);
+    res.json({ token });
+  });
+
+  // Fetch project data for authenticated customer
+  app.get("/api/customer/:code/project", async (req, res) => {
+    const link = await storage.getEditableShareLink(req.params.code);
+    if (!link) return res.status(404).json({ message: "Link not found" });
+
+    // Validate token if password-protected
+    if (link.passwordHash) {
+      const token = req.headers["x-customer-token"] as string;
+      if (!token || token !== link.customerEditToken) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+    }
+
+    const project = await storage.getProject(link.projectId);
+    if (!project) return res.status(404).json({ message: "Project not found" });
+
+    const activeScenario = await storage.getActiveScenario(project.id);
+    const allScenarios = await storage.getScenariosByProject(project.id);
+
+    res.json({ project, activeScenario, scenarios: allScenarios });
   });
 
   // HTML report generation

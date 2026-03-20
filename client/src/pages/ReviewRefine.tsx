@@ -1,7 +1,8 @@
 import { useState, useCallback } from "react";
-import { useLocation, useParams } from "wouter";
+import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { useProjectId, useNavPath } from "@/lib/customerContext";
 import { parseCurrencyString, formatCurrencyFull } from "@/lib/utils";
 import Layout from "@/components/Layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1042,7 +1043,8 @@ const SECTIONS: SectionConfig[] = [
 // ---------------------------------------------------------------------------
 
 export default function ReviewRefine() {
-  const { projectId } = useParams<{ projectId: string }>();
+  const projectId = useProjectId();
+  const navPath = useNavPath();
   const [, navigate] = useLocation();
   const queryClient = useQueryClient();
 
@@ -1263,7 +1265,7 @@ export default function ReviewRefine() {
             </p>
             <Button
               variant="outline"
-              onClick={() => navigate(`/project/${projectId}`)}
+              onClick={() => navigate(navPath(`/project/${projectId}`))}
               className="mt-2 gap-2"
             >
               <ChevronLeft className="w-4 h-4" />
@@ -1362,14 +1364,14 @@ export default function ReviewRefine() {
       <div className="flex items-center justify-between mt-10 pt-6 border-t border-border">
         <Button
           variant="outline"
-          onClick={() => navigate(`/project/${projectId}/workshop`)}
+          onClick={() => navigate(navPath(`/project/${projectId}/workshop`))}
           className="gap-2"
         >
           <ChevronLeft className="w-4 h-4" />
           Workshop
         </Button>
         <Button
-          onClick={() => navigate(`/project/${projectId}/dashboard`)}
+          onClick={() => navigate(navPath(`/project/${projectId}/dashboard`))}
           className="gap-2 text-white"
           style={{
             background: "linear-gradient(135deg, #001278, #02a2fd)",

@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from "react";
-import { useLocation, useParams } from "wouter";
+import { useLocation } from "wouter";
+import { useProjectId, useCustomerContext, useNavPath } from "@/lib/customerContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import Layout from "@/components/Layout";
@@ -24,16 +25,32 @@ import {
   Trash2,
   Plus,
   Building2,
-  Briefcase,
   X,
   Users,
   DollarSign,
   Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { UseCase, WorkforceParams } from "@shared/types";
+import type { UseCase, WorkforceParams, PriorityScore } from "@shared/types";
 import { formatNumber, formatCurrencyFull } from "@/lib/utils";
 import AIHintPanel from "@/components/AIHintPanel";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const TIER_STYLE_MAP: Array<{ match: string; style: { bg: string; text: string; border: string } }> = [
+  { match: "champion", style: { bg: "bg-green-50 dark:bg-green-950/30", text: "text-green-700 dark:text-green-400", border: "border-green-200 dark:border-green-800" } },
+  { match: "quick win", style: { bg: "bg-blue-50 dark:bg-blue-950/30", text: "text-blue-700 dark:text-blue-400", border: "border-blue-200 dark:border-blue-800" } },
+  { match: "strategic", style: { bg: "bg-amber-50 dark:bg-amber-950/30", text: "text-amber-700 dark:text-amber-400", border: "border-amber-200 dark:border-amber-800" } },
+  { match: "foundation", style: { bg: "bg-gray-50 dark:bg-gray-950/30", text: "text-gray-700 dark:text-gray-400", border: "border-gray-200 dark:border-gray-700" } },
+];
+const DEFAULT_TIER_STYLE = { bg: "bg-gray-50 dark:bg-gray-950/30", text: "text-gray-700 dark:text-gray-400", border: "border-gray-200 dark:border-gray-700" };
+
+function getTierStyle(tier: string) {
+  const lower = tier.toLowerCase();
+  return TIER_STYLE_MAP.find(t => lower.includes(t.match))?.style || DEFAULT_TIER_STYLE;
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,7 +83,9 @@ interface ScenarioData {
 // ---------------------------------------------------------------------------
 
 export default function Upload() {
-  const { projectId } = useParams<{ projectId: string }>();
+  const projectId = useProjectId();
+  const { isCustomerMode } = useCustomerContext();
+  const navPath = useNavPath();
   const [, navigate] = useLocation();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -137,6 +156,8 @@ export default function Upload() {
 
   const scenario = project?.activeScenario;
   const useCases: UseCase[] = (scenario?.useCases as UseCase[]) || [];
+  const priorities: PriorityScore[] = (scenario?.priorities as PriorityScore[]) || [];
+  const priorityMap = new Map(priorities.map(p => [p.useCaseId, p]));
 
   // -----------------------------------------------------------------------
   // Mutations
@@ -428,8 +449,8 @@ export default function Upload() {
           </CardContent>
         </Card>
 
-        {/* Upload Section */}
-        <Card>
+        {/* Upload Section — hidden in customer mode */}
+        {!isCustomerMode && <Card>
           <CardHeader className="pb-4">
             <CardTitle className="text-lg flex items-center gap-2">
               <FileJson className="w-5 h-5 text-[#36bf78]" />
@@ -502,7 +523,7 @@ export default function Upload() {
               </div>
             </div>
           </CardContent>
-        </Card>
+        </Card>}
 
         {/* Workforce Parameters */}
         {scenario && (
@@ -676,15 +697,29 @@ export default function Upload() {
                         <h3 className="text-sm font-semibold text-foreground truncate">
                           {uc.name}
                         </h3>
-                        {uc.function && (
-                          <Badge
-                            variant="outline"
-                            className="text-xs shrink-0 font-normal"
-                          >
-                            <Briefcase className="w-3 h-3 mr-1" />
-                            {uc.function}
-                          </Badge>
-                        )}
+                        {(() => {
+                          const priority = priorityMap.get(uc.id);
+                          if (!priority) return null;
+                          const tierStyle = getTierStyle(priority.priorityTier);
+                          return (
+                            <>
+                              <Badge
+                                variant="outline"
+                                className={`text-xs shrink-0 font-normal ${tierStyle.bg} ${tierStyle.text} ${tierStyle.border}`}
+                              >
+                                {priority.priorityTier}
+                              </Badge>
+                              {priority.recommendedPhase && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-xs shrink-0 font-normal"
+                                >
+                                  {priority.recommendedPhase}
+                                </Badge>
+                              )}
+                            </>
+                          );
+                        })()}
                       </div>
                       {uc.description && (
                         <p className="text-xs text-muted-foreground line-clamp-2">
@@ -825,7 +860,7 @@ export default function Upload() {
                   // Non-blocking — continue to workshop
                 }
               }
-              navigate(`/project/${projectId}/workshop`);
+              navigate(navPath(`/project/${projectId}/workshop`));
             }}
             disabled={useCases.length === 0}
             className="gap-2 text-white"

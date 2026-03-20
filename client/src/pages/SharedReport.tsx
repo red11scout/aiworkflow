@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useParams } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -102,6 +102,15 @@ export default function SharedReport() {
   const [expandedWorkflows, setExpandedWorkflows] = useState<Set<string>>(
     new Set(),
   );
+  const [expandedUCs, setExpandedUCs] = useState<Set<string>>(new Set());
+  const toggleUC = (id: string) => {
+    setExpandedUCs(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   // ── Derived data ──────────────────────────────────────────────────────────
   const workflowMaps: WorkflowMap[] = report?.workflowMaps || [];
@@ -804,39 +813,90 @@ export default function SharedReport() {
                             ASSESSMENT_STATUS_THRESHOLDS.find(
                               (t) => uc.percentage >= t.min,
                             );
+                          const hasGaps = uc.gaps.length > 0;
+                          const isExpanded = expandedUCs.has(uc.useCaseId);
                           return (
-                            <tr
-                              key={uc.useCaseId}
-                              className="hover:bg-slate-50/60"
-                            >
-                              <td className="px-4 py-3 font-medium text-slate-800">
-                                {resolveUcName(uc.useCaseName)}
-                              </td>
-                              <td className="px-4 py-3 text-center">
-                                <span
-                                  className="inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold text-white"
-                                  style={{
-                                    backgroundColor: ucThreshold?.color,
-                                  }}
-                                >
-                                  {ucThreshold?.label}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3 text-center tabular-nums text-slate-600">
-                                {uc.mappedQuestionIds.length}
-                              </td>
-                              <td className="px-4 py-3 text-center">
-                                {uc.gaps.length > 0 ? (
-                                  <span className="inline-block rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
-                                    {uc.gaps.length}
+                            <React.Fragment key={uc.useCaseId}>
+                              <tr
+                                className={`hover:bg-slate-50/60 ${hasGaps ? "cursor-pointer" : ""}`}
+                                onClick={() => hasGaps && toggleUC(uc.useCaseId)}
+                              >
+                                <td className="px-4 py-3 font-medium text-slate-800">
+                                  <span className="flex items-center gap-1.5">
+                                    {hasGaps && (
+                                      isExpanded
+                                        ? <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                        : <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                    )}
+                                    {resolveUcName(uc.useCaseName)}
                                   </span>
-                                ) : (
-                                  <span className="text-xs font-medium" style={{ color: T.green }}>
-                                    OK
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  <span
+                                    className="inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold text-white"
+                                    style={{
+                                      backgroundColor: ucThreshold?.color,
+                                    }}
+                                  >
+                                    {ucThreshold?.label}
                                   </span>
-                                )}
-                              </td>
-                            </tr>
+                                </td>
+                                <td className="px-4 py-3 text-center tabular-nums text-slate-600">
+                                  {uc.mappedQuestionIds.length}
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  {hasGaps ? (
+                                    <span className="inline-block rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
+                                      {uc.gaps.length}
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs font-medium" style={{ color: T.green }}>
+                                      OK
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                              {isExpanded && hasGaps && (
+                                <tr>
+                                  <td colSpan={4} className="px-4 py-0 bg-slate-50/40">
+                                    <div className="py-3 pl-5 space-y-2">
+                                      {uc.gaps.map((gap, gi) => {
+                                        const severityColor = gap.gapSize >= 3 ? "#ef4444" : gap.gapSize >= 2 ? "#f59e0b" : "#02a2fd";
+                                        const tipText = gap.tip || assessment?.gapGuidance?.[gap.questionId] || "";
+                                        return (
+                                          <div key={gi} className="rounded-lg border border-slate-200 bg-white p-3 text-xs">
+                                            <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                                              <span
+                                                className="inline-block rounded-full px-2 py-0.5 text-[10px] font-bold text-white"
+                                                style={{ backgroundColor: severityColor }}
+                                              >
+                                                Gap: {gap.gapSize}
+                                              </span>
+                                              <span className="font-semibold text-slate-600 capitalize">
+                                                {gap.category}
+                                              </span>
+                                              <span className="text-slate-400">|</span>
+                                              <span className="text-slate-500">
+                                                {gap.subCategory}
+                                              </span>
+                                              <span className="ml-auto text-slate-400 tabular-nums text-[10px]">
+                                                Current: {gap.currentScore} → Target: {gap.targetScore}
+                                              </span>
+                                            </div>
+                                            <p className="text-slate-600 mb-1">{gap.questionText}</p>
+                                            {tipText && (
+                                              <p className="text-slate-500 italic border-l-2 border-slate-300 pl-2 mt-1.5">
+                                                {tipText}
+                                              </p>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
                           );
                         })}
                       </tbody>

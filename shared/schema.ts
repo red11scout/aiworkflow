@@ -109,6 +109,10 @@ export const shareLinks = pgTable("share_links", {
   scenarioId: varchar("scenario_id").notNull(),
   shareCode: varchar("share_code", { length: 12 }).unique().notNull(),
   expiresAt: timestamp("expires_at"),
+  editable: boolean("editable").default(false),
+  passwordHash: text("password_hash"),
+  customerName: text("customer_name").default(""),
+  customerEditToken: text("customer_edit_token"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => [
   index("idx_share_links_code").on(table.shareCode),

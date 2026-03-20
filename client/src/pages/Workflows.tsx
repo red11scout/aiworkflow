@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useLocation, useParams } from "wouter";
+import { useLocation } from "wouter";
+import { useProjectId, useNavPath } from "@/lib/customerContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import Layout from "@/components/Layout";
@@ -115,7 +116,8 @@ function workflowMapToInteractive(wm: WorkflowMap): InteractiveWorkflowMap {
 // ---------------------------------------------------------------------------
 
 export default function Workflows() {
-  const { projectId } = useParams<{ projectId: string }>();
+  const projectId = useProjectId();
+  const navPath = useNavPath();
   const [, navigate] = useLocation();
   const queryClient = useQueryClient();
 
@@ -589,7 +591,7 @@ export default function Workflows() {
                 </p>
                 <Button
                   variant="outline"
-                  onClick={() => navigate(`/project/${projectId}`)}
+                  onClick={() => navigate(navPath(`/project/${projectId}`))}
                   className="mt-2 gap-2"
                 >
                   <ChevronLeft className="w-4 h-4" />
@@ -649,14 +651,14 @@ export default function Workflows() {
       <div className="flex items-center justify-between mt-10 pt-6 border-t border-border">
         <Button
           variant="outline"
-          onClick={() => navigate(`/project/${projectId}`)}
+          onClick={() => navigate(navPath(`/project/${projectId}`))}
           className="gap-2"
         >
           <ChevronLeft className="w-4 h-4" />
           Setup
         </Button>
         <Button
-          onClick={() => navigate(`/project/${projectId}/review`)}
+          onClick={() => navigate(navPath(`/project/${projectId}/review`))}
           className="gap-2 text-white"
           style={{
             background: "linear-gradient(135deg, #001278, #02a2fd)",

@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
-import { useLocation, useParams } from "wouter";
+import { useLocation } from "wouter";
+import { useProjectId, useCustomerContext, useNavPath } from "@/lib/customerContext";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { formatCurrency, formatNumber } from "@/lib/utils";
@@ -13,6 +14,15 @@ import { SystemsHeatMap } from "@/components/dashboard/SystemsHeatMap";
 import Layout from "@/components/Layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import {
   ArrowLeft,
   Download,
@@ -24,6 +34,7 @@ import {
   DollarSign,
   Zap,
   BarChart3,
+  UserPlus,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { WorkflowMap } from "@shared/types";
@@ -33,13 +44,23 @@ import type { WorkflowMap } from "@shared/types";
 // ---------------------------------------------------------------------------
 
 export default function Dashboard() {
-  const { projectId } = useParams<{ projectId: string }>();
+  const projectId = useProjectId();
+  const { isCustomerMode } = useCustomerContext();
+  const navPath = useNavPath();
   const [, navigate] = useLocation();
   const [shareLink, setShareLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [jsonLoading, setJsonLoading] = useState(false);
   const [shareLoading, setShareLoading] = useState(false);
+
+  // Customer edit link state
+  const [showCustomerDialog, setShowCustomerDialog] = useState(false);
+  const [customerName, setCustomerName] = useState("");
+  const [customerPassword, setCustomerPassword] = useState("");
+  const [customerLink, setCustomerLink] = useState<string | null>(null);
+  const [customerLinkLoading, setCustomerLinkLoading] = useState(false);
+  const [customerLinkCopied, setCustomerLinkCopied] = useState(false);
 
   // Load project data
   const { data: project, isLoading } = useQuery<any>({
@@ -167,6 +188,37 @@ export default function Dashboard() {
     setTimeout(() => setCopied(false), 2000);
   }
 
+  async function handleCreateCustomerLink() {
+    if (!customerName.trim()) {
+      toast.error("Customer name is required");
+      return;
+    }
+    setCustomerLinkLoading(true);
+    try {
+      const res = await apiRequest("POST", `/api/projects/${projectId}/customer-link`, {
+        customerName: customerName.trim(),
+        password: customerPassword || undefined,
+      });
+      const data = await res.json();
+      const url = `${window.location.origin}${data.url}`;
+      setCustomerLink(url);
+      toast.success("Customer edit link created");
+    } catch (err: any) {
+      console.error("Customer link error:", err);
+      toast.error("Failed to create customer link");
+    } finally {
+      setCustomerLinkLoading(false);
+    }
+  }
+
+  function handleCopyCustomerLink() {
+    if (!customerLink) return;
+    navigator.clipboard.writeText(customerLink);
+    setCustomerLinkCopied(true);
+    toast.success("Link copied to clipboard");
+    setTimeout(() => setCustomerLinkCopied(false), 2000);
+  }
+
   // -----------------------------------------------------------------------
   // Render
   // -----------------------------------------------------------------------
@@ -191,7 +243,7 @@ export default function Dashboard() {
           <Button
             variant="outline"
             className="mt-4"
-            onClick={() => navigate(`/project/${projectId}`)}
+            onClick={() => navigate(navPath(`/project/${projectId}`))}
           >
             Go to Setup
           </Button>
@@ -301,7 +353,7 @@ export default function Dashboard() {
                 <Button
                   variant="outline"
                   className="mt-4"
-                  onClick={() => navigate(`/project/${projectId}/workshop`)}
+                  onClick={() => navigate(navPath(`/project/${projectId}/workshop`))}
                 >
                   Go to Workshop
                 </Button>
@@ -425,23 +477,40 @@ export default function Dashboard() {
                 {pdfLoading ? "Generating..." : "Download PDF"}
               </Button>
 
-              <Button
-                onClick={handleCreateShareLink}
-                disabled={shareLoading}
-                variant="outline"
-              >
-                <Share2 className="w-4 h-4 mr-2" />
-                {shareLoading ? "Creating..." : "Create Share Link"}
-              </Button>
+              {!isCustomerMode && (
+                <>
+                  <Button
+                    onClick={handleCreateShareLink}
+                    disabled={shareLoading}
+                    variant="outline"
+                  >
+                    <Share2 className="w-4 h-4 mr-2" />
+                    {shareLoading ? "Creating..." : "Create Share Link"}
+                  </Button>
 
-              <Button
-                onClick={handleExportJSON}
-                disabled={jsonLoading}
-                variant="outline"
-              >
-                <FileJson className="w-4 h-4 mr-2" />
-                {jsonLoading ? "Exporting..." : "Export JSON"}
-              </Button>
+                  <Button
+                    onClick={() => {
+                      setCustomerName("");
+                      setCustomerPassword("");
+                      setCustomerLink(null);
+                      setShowCustomerDialog(true);
+                    }}
+                    variant="outline"
+                  >
+                    <UserPlus className="w-4 h-4 mr-2" />
+                    Customer Edit Link
+                  </Button>
+
+                  <Button
+                    onClick={handleExportJSON}
+                    disabled={jsonLoading}
+                    variant="outline"
+                  >
+                    <FileJson className="w-4 h-4 mr-2" />
+                    {jsonLoading ? "Exporting..." : "Export JSON"}
+                  </Button>
+                </>
+              )}
             </div>
 
             {shareLink && (
@@ -469,13 +538,85 @@ export default function Dashboard() {
         <div className="flex justify-start pb-6">
           <Button
             variant="outline"
-            onClick={() => navigate(`/project/${projectId}/review`)}
+            onClick={() => navigate(navPath(`/project/${projectId}/review`))}
           >
             <ArrowLeft className="w-4 h-4 mr-2" />
             Review
           </Button>
         </div>
       </div>
+
+      {/* Customer Edit Link Dialog */}
+      <Dialog open={showCustomerDialog} onOpenChange={setShowCustomerDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create Customer Edit Link</DialogTitle>
+            <DialogDescription>
+              Generate a link that allows your customer to view and edit their workshop data.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 mt-2">
+            <div className="space-y-2">
+              <Label htmlFor="customer-name">Customer Name</Label>
+              <Input
+                id="customer-name"
+                placeholder="e.g., Mativ"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="customer-password">Password (optional)</Label>
+              <Input
+                id="customer-password"
+                type="text"
+                placeholder="Leave blank for open access"
+                value={customerPassword}
+                onChange={(e) => setCustomerPassword(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                If set, customers must enter this password to access the link.
+              </p>
+            </div>
+
+            {!customerLink ? (
+              <Button
+                onClick={handleCreateCustomerLink}
+                disabled={customerLinkLoading || !customerName.trim()}
+                className="w-full bg-[#02a2fd] hover:bg-[#0291e3]"
+              >
+                {customerLinkLoading ? "Generating..." : "Generate Link"}
+              </Button>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground truncate">
+                    {customerLink}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCopyCustomerLink}
+                  >
+                    {customerLinkCopied ? (
+                      <Check className="w-4 h-4" />
+                    ) : (
+                      <Copy className="w-4 h-4" />
+                    )}
+                  </Button>
+                </div>
+                {customerPassword && (
+                  <p className="text-xs text-muted-foreground">
+                    Password: <span className="font-mono font-medium text-foreground">{customerPassword}</span>
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 }

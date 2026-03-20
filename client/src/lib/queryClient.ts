@@ -20,7 +20,9 @@ export async function apiRequest(
   try {
     const headers: Record<string, string> = {
       ...(data ? { "Content-Type": "application/json" } : {}),
-      "x-owner-token": getOwnerToken(),
+      ...(_customerToken
+        ? { "x-customer-token": _customerToken }
+        : { "x-owner-token": getOwnerToken() }),
     };
 
     const res = await fetch(url, {
@@ -52,6 +54,17 @@ export function getOwnerToken(): string {
   return token;
 }
 
+// Customer edit mode — module-level token that overrides owner token in requests
+let _customerToken: string | null = null;
+
+export function setCustomerToken(token: string | null): void {
+  _customerToken = token;
+}
+
+export function getCustomerToken(): string | null {
+  return _customerToken;
+}
+
 type UnauthorizedBehavior = "returnNull" | "throw";
 export const getQueryFn: <T>(options: {
   on401: UnauthorizedBehavior;
@@ -60,9 +73,9 @@ export const getQueryFn: <T>(options: {
   async ({ queryKey }) => {
     const res = await fetch(queryKey.join("/") as string, {
       credentials: "include",
-      headers: {
-        "x-owner-token": getOwnerToken(),
-      },
+      headers: _customerToken
+        ? { "x-customer-token": _customerToken }
+        : { "x-owner-token": getOwnerToken() },
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {

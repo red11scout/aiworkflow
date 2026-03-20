@@ -234,8 +234,8 @@ export const ASSESSMENT_QUESTIONS: Omit<AssessmentQuestion, "useCasesImpacted">[
     id: "DAT-005",
     category: "data",
     subCategory: "Data Quality",
-    questionText: "How complete is the historical win/loss data?",
-    hint: "Evaluate completeness of outcome tracking and result attribution",
+    questionText: "How complete are the historical data records?",
+    hint: "Evaluate completeness of historical data records and documentation",
     weight: 2,
   },
   {

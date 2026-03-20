@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { useParams } from "wouter";
+import { useProjectId } from "@/lib/customerContext";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Sparkles, Loader2, Download, Upload as UploadIcon } from "lucide-react";
@@ -40,7 +40,7 @@ interface ProjectResponse {
 const CATEGORIES: AssessmentCategory[] = ["skills", "data", "infrastructure", "governance"];
 
 export default function Assessment() {
-  const { projectId } = useParams<{ projectId: string }>();
+  const projectId = useProjectId();
   const queryClient = useQueryClient();
 
   // Fetch project + scenario data
@@ -212,9 +212,7 @@ export default function Assessment() {
   const handleExportJSON = async () => {
     if (!projectId) return;
     try {
-      const response = await fetch(`/api/projects/${projectId}/assessment-export`, {
-        headers: { "X-Owner-Token": localStorage.getItem("owner_token") || "" },
-      });
+      const response = await apiRequest("GET", `/api/projects/${projectId}/assessment-export`);
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -232,9 +230,7 @@ export default function Assessment() {
     if (!projectId) return;
     setIsDownloading(true);
     try {
-      const response = await fetch(`/api/projects/${projectId}/assessment-template`, {
-        headers: { "X-Owner-Token": localStorage.getItem("owner_token") || "" },
-      });
+      const response = await apiRequest("GET", `/api/projects/${projectId}/assessment-template`);
       if (!response.ok) throw new Error("Download failed");
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);

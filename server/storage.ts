@@ -32,6 +32,10 @@ export interface IStorage {
   // Share links
   createShareLink(projectId: string, scenarioId: string, code: string): Promise<ShareLink>;
   getShareLink(code: string): Promise<ShareLink | undefined>;
+  createCustomerEditLink(projectId: string, scenarioId: string, code: string, customerName: string, passwordHash: string | null): Promise<ShareLink>;
+  getEditableShareLink(code: string): Promise<ShareLink | undefined>;
+  updateShareLinkToken(id: string, token: string): Promise<void>;
+  getShareLinkByToken(token: string): Promise<ShareLink | undefined>;
 
   // AI conversations
   saveConversation(
@@ -165,6 +169,50 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(shareLinks)
       .where(eq(shareLinks.shareCode, code));
+    return link;
+  }
+
+  async createCustomerEditLink(
+    projectId: string,
+    scenarioId: string,
+    code: string,
+    customerName: string,
+    passwordHash: string | null,
+  ): Promise<ShareLink> {
+    const [link] = await db
+      .insert(shareLinks)
+      .values({
+        projectId,
+        scenarioId,
+        shareCode: code,
+        editable: true,
+        customerName,
+        passwordHash,
+      })
+      .returning();
+    return link;
+  }
+
+  async getEditableShareLink(code: string): Promise<ShareLink | undefined> {
+    const [link] = await db
+      .select()
+      .from(shareLinks)
+      .where(and(eq(shareLinks.shareCode, code), eq(shareLinks.editable, true)));
+    return link;
+  }
+
+  async updateShareLinkToken(id: string, token: string): Promise<void> {
+    await db
+      .update(shareLinks)
+      .set({ customerEditToken: token })
+      .where(eq(shareLinks.id, id));
+  }
+
+  async getShareLinkByToken(token: string): Promise<ShareLink | undefined> {
+    const [link] = await db
+      .select()
+      .from(shareLinks)
+      .where(and(eq(shareLinks.customerEditToken, token), eq(shareLinks.editable, true)));
     return link;
   }
 

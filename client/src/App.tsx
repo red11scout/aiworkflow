@@ -9,6 +9,8 @@ const Workflows = lazy(() => import("./pages/Workflows"));
 const ReviewRefine = lazy(() => import("./pages/ReviewRefine"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const SharedReport = lazy(() => import("./pages/SharedReport"));
+const CustomerEntry = lazy(() => import("./pages/CustomerEntry"));
+const CustomerView = lazy(() => import("./pages/CustomerView"));
 
 function PageLoader() {
   return (
@@ -31,6 +33,8 @@ export default function App() {
           <Route path="/project/:projectId/review" component={ReviewRefine} />
           <Route path="/project/:projectId/dashboard" component={Dashboard} />
           <Route path="/shared/:code" component={SharedReport} />
+          <Route path="/customer/:code" component={CustomerEntry} />
+          <Route path="/customer/:code/:tab" component={CustomerView} />
           <Route>
             <div className="min-h-screen flex items-center justify-center">
               <p className="text-muted-foreground">Page not found</p>
