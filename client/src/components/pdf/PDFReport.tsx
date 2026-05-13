@@ -1,3 +1,17 @@
+/**
+ * PDFReport — professional, paginated PDF that mirrors the SharedReport page.
+ *
+ * Section order matches /shared/:code:
+ *   Cover → KPIs + Use Case Benefits → Workflow Transformations →
+ *   Systems, Data & Integrations → AI Readiness Assessment.
+ *
+ * Layout rules:
+ *   - Every workflow card: wrap={false} so it never splits across pages.
+ *   - Every table row: wrap={false}.
+ *   - Section heading + lede travel together via a wrap={false} bundle.
+ *   - AI Readiness Assessment forces a page break (Page break prop).
+ *   - Fixed header + footer on every non-cover page with logo + page numbers.
+ */
 import React from "react";
 import {
   Document,
@@ -9,10 +23,21 @@ import {
   Image,
   pdf,
 } from "@react-pdf/renderer";
+import { formatCurrency, parseCurrencyString } from "@shared/formulas";
+import {
+  ASSESSMENT_STATUS_THRESHOLDS,
+  CATEGORY_METADATA,
+} from "@shared/assessment-questions";
+import { getPatternById } from "@shared/patterns";
+import type {
+  AssessmentData,
+  CategoryScore,
+  UseCaseAssessmentScore,
+  WorkflowMap,
+} from "@shared/types";
 
 // ---------------------------------------------------------------------------
-// Font registration — DM Sans from local static TTFs (bundled in public/fonts)
-// CDN URLs break silently in production on Vercel, so we serve them locally.
+// Fonts — DM Sans from local /fonts/ (bundled in public/)
 // ---------------------------------------------------------------------------
 Font.register({
   family: "DM Sans",
@@ -23,290 +48,433 @@ Font.register({
     { src: "/fonts/DMSans-Bold.ttf", fontWeight: 700 },
   ],
 });
-
-// Prevent potential crashes from hyphenation in @react-pdf/renderer
 Font.registerHyphenationCallback((word) => [word]);
 
 // ---------------------------------------------------------------------------
-// Brand palette
+// Brand palette (matches SharedReport)
 // ---------------------------------------------------------------------------
 const NAVY = "#001278";
+const BLUE_DEEP = "#0339AF";
 const BLUE = "#02a2fd";
 const GREEN = "#36bf78";
-const GRAY = "#6b7280";
-const LIGHT_GRAY = "#f3f4f6";
+const AMBER = "#f59e0b";
+const RED = "#ef4444";
+const SLATE_900 = "#0f172a";
+const SLATE_800 = "#1e293b";
+const SLATE_700 = "#334155";
+const SLATE_600 = "#475569";
+const SLATE_500 = "#64748b";
+const SLATE_400 = "#94a3b8";
+const SLATE_300 = "#cbd5e1";
+const SLATE_200 = "#e2e8f0";
+const SLATE_100 = "#f1f5f9";
+const SLATE_50 = "#f8fafc";
+const WHITE = "#ffffff";
 
-// Logo URLs — local assets to avoid CORS issues in production
 const LOGO_BLUE_URL = "/blueally-logo.png";
 const LOGO_WHITE_URL = "/blueally-logo-white.png";
 
 // ---------------------------------------------------------------------------
 // Stylesheet
 // ---------------------------------------------------------------------------
-const styles = StyleSheet.create({
-  // -- Shared page layout --------------------------------------------------
+const s = StyleSheet.create({
+  // Pages
   page: {
     fontFamily: "DM Sans",
     fontSize: 10,
-    paddingTop: 60,
-    paddingBottom: 50,
-    paddingHorizontal: 40,
-    color: "#1f2937",
+    paddingTop: 64,
+    paddingBottom: 52,
+    paddingHorizontal: 36,
+    color: SLATE_900,
+    backgroundColor: WHITE,
   },
+  cover: {
+    fontFamily: "DM Sans",
+    backgroundColor: NAVY,
+    color: WHITE,
+    padding: 56,
+  },
+
+  // Page header / footer (fixed)
   header: {
     position: "absolute",
-    top: 15,
-    left: 40,
-    right: 40,
+    top: 18,
+    left: 36,
+    right: 36,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     borderBottomWidth: 1,
-    borderBottomColor: BLUE,
+    borderBottomColor: SLATE_200,
     paddingBottom: 8,
   },
-  headerLogoImage: {
-    width: 80,
-    height: "auto" as any,
-  },
-  headerDate: {
-    fontSize: 8,
-    color: GRAY,
-  },
+  headerLogo: { width: 78, height: "auto" as any },
+  headerLabel: { fontSize: 8, color: SLATE_500 },
+
   footer: {
     position: "absolute",
-    bottom: 20,
-    left: 40,
-    right: 40,
+    bottom: 22,
+    left: 36,
+    right: 36,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     borderTopWidth: 1,
-    borderTopColor: LIGHT_GRAY,
+    borderTopColor: SLATE_100,
     paddingTop: 6,
   },
-  footerText: {
-    fontSize: 7,
-    color: GRAY,
-  },
-  pageNumber: {
-    fontSize: 7,
-    color: GRAY,
-  },
+  footerText: { fontSize: 7, color: SLATE_500 },
+  pageNum: { fontSize: 7, color: SLATE_500 },
 
-  // -- Cover page ----------------------------------------------------------
-  coverPage: {
-    fontFamily: "DM Sans",
-    backgroundColor: NAVY,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 60,
-  },
-  coverLogoImage: {
-    width: 180,
-    height: "auto" as any,
-    marginBottom: 12,
-  },
-  coverSubtitle: {
-    fontSize: 12,
+  // Cover
+  coverLogo: { width: 180, marginBottom: 24, alignSelf: "center" },
+  coverEyebrow: {
     color: BLUE,
-    marginBottom: 60,
-    letterSpacing: 2,
+    fontSize: 11,
+    letterSpacing: 3,
+    textAlign: "center",
+    marginBottom: 28,
   },
   coverTitle: {
-    fontSize: 28,
+    fontSize: 30,
     fontWeight: 700,
-    color: "white",
+    color: WHITE,
     textAlign: "center",
-    marginBottom: 12,
+    lineHeight: 1.2,
   },
   coverCompany: {
-    fontSize: 20,
-    fontWeight: 600,
-    color: BLUE,
-    textAlign: "center",
-    marginBottom: 40,
-  },
-  coverDate: {
-    fontSize: 11,
-    color: "#9ca3af",
-    textAlign: "center",
-  },
-  coverConfidential: {
-    position: "absolute",
-    bottom: 40,
-    left: 60,
-    right: 60,
-    textAlign: "center",
-    fontSize: 8,
-    color: "#6b7280",
-    borderTopWidth: 1,
-    borderTopColor: "#374151",
-    paddingTop: 12,
-  },
-
-  // -- Section headings ----------------------------------------------------
-  sectionTitle: {
     fontSize: 18,
-    fontWeight: 700,
-    color: NAVY,
-    marginBottom: 16,
-    borderBottomWidth: 2,
-    borderBottomColor: BLUE,
-    paddingBottom: 6,
-  },
-  subsectionTitle: {
-    fontSize: 13,
     fontWeight: 600,
-    color: NAVY,
-    marginBottom: 8,
-    marginTop: 12,
+    color: "#bfdbfe",
+    textAlign: "center",
+    marginTop: 8,
+    marginBottom: 36,
   },
-
-  // -- Tables --------------------------------------------------------------
-  tableHeader: {
+  coverMetricsRow: {
     flexDirection: "row",
-    backgroundColor: NAVY,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    borderRadius: 4,
-    marginBottom: 2,
+    justifyContent: "center",
+    gap: 36,
+    marginTop: 16,
   },
-  tableHeaderText: {
-    color: "white",
-    fontSize: 8,
-    fontWeight: 600,
+  coverMetricLabel: {
+    fontSize: 9,
+    color: "#93c5fd",
+    textTransform: "uppercase",
+    letterSpacing: 1.6,
+    textAlign: "center",
   },
-  tableRow: {
-    flexDirection: "row",
-    paddingVertical: 5,
-    paddingHorizontal: 8,
-    borderBottomWidth: 0.5,
-    borderBottomColor: "#e5e7eb",
-  },
-  tableRowAlt: {
-    backgroundColor: "#f9fafb",
-  },
-  tableCellText: {
-    fontSize: 8,
-  },
-
-  // -- Metric cards --------------------------------------------------------
-  metricRow: {
-    flexDirection: "row",
-    gap: 12,
-    marginBottom: 16,
-  },
-  metricCard: {
-    flex: 1,
-    backgroundColor: LIGHT_GRAY,
-    borderRadius: 6,
-    padding: 12,
-    alignItems: "center",
-  },
-  metricValue: {
-    fontSize: 20,
+  coverMetricValue: {
+    fontSize: 30,
     fontWeight: 700,
-    color: NAVY,
-  },
-  metricLabel: {
-    fontSize: 8,
-    color: GRAY,
+    color: WHITE,
     marginTop: 4,
     textAlign: "center",
   },
+  coverDate: {
+    fontSize: 10,
+    color: "#cbd5e1",
+    textAlign: "center",
+    marginTop: 48,
+  },
+  coverConfidential: {
+    position: "absolute",
+    bottom: 36,
+    left: 56,
+    right: 56,
+    fontSize: 8,
+    color: "#94a3b8",
+    textAlign: "center",
+    borderTopWidth: 0.5,
+    borderTopColor: "#475569",
+    paddingTop: 10,
+  },
 
-  // -- Benefits rows -------------------------------------------------------
-  benefitRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 6,
+  // Section
+  section: { marginBottom: 18 },
+  h2: {
+    fontSize: 18,
+    fontWeight: 700,
+    color: SLATE_800,
+    marginBottom: 4,
   },
-  benefitLabel: {
-    fontSize: 9,
-    color: "#374151",
-  },
-  benefitValue: {
-    fontSize: 9,
-    fontWeight: 600,
-  },
-
-  // -- Workflow cards ------------------------------------------------------
-  workflowCard: {
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    borderRadius: 6,
-    padding: 12,
-    marginBottom: 10,
-  },
-  workflowTitle: {
+  h3: {
     fontSize: 11,
     fontWeight: 600,
-    color: NAVY,
+    color: SLATE_700,
+    marginBottom: 8,
+    marginTop: 10,
+  },
+  lede: { fontSize: 9, color: SLATE_500, marginBottom: 10 },
+
+  // KPI grid
+  kpiGrid: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 12,
+  },
+  kpiCard: {
+    flex: 1,
+    backgroundColor: WHITE,
+    borderWidth: 1,
+    borderColor: SLATE_200,
+    borderRadius: 8,
+    padding: 10,
+  },
+  kpiIcon: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    marginBottom: 8,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  kpiIconText: { fontSize: 12, fontWeight: 700 },
+  kpiValue: {
+    fontSize: 18,
+    fontWeight: 700,
+    color: SLATE_900,
+  },
+  kpiLabel: {
+    fontSize: 8,
+    color: SLATE_500,
+    marginTop: 2,
+  },
+
+  // Table
+  table: {
+    borderWidth: 1,
+    borderColor: SLATE_200,
+    borderRadius: 6,
+    overflow: "hidden",
+  },
+  thRow: {
+    flexDirection: "row",
+    backgroundColor: SLATE_50,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: SLATE_200,
+  },
+  th: {
+    fontSize: 8,
+    fontWeight: 600,
+    color: SLATE_500,
+    textTransform: "uppercase",
+  },
+  tr: {
+    flexDirection: "row",
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderBottomWidth: 0.5,
+    borderBottomColor: SLATE_100,
+  },
+  trAlt: { backgroundColor: SLATE_50 },
+  tdRoot: { fontSize: 9, color: SLATE_700 },
+  tdName: { fontSize: 9, fontWeight: 500, color: SLATE_800 },
+  num: { fontSize: 9, color: SLATE_700, textAlign: "right" },
+  numStrong: { fontSize: 9, fontWeight: 600, color: SLATE_800, textAlign: "right" },
+  ctr: { fontSize: 9, textAlign: "center", color: SLATE_700 },
+  tfootRow: {
+    flexDirection: "row",
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    backgroundColor: SLATE_50,
+    borderTopWidth: 1,
+    borderTopColor: SLATE_300,
+  },
+  tfootCell: { fontSize: 9, fontWeight: 600, color: SLATE_900 },
+
+  // Status badges
+  badge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 999,
+    fontSize: 8,
+    fontWeight: 500,
+  },
+  badgeHigh: { backgroundColor: "#d1fae5", color: "#065f46" },
+  badgeMedium: { backgroundColor: "#dbeafe", color: "#1e40af" },
+  badgeLow: { backgroundColor: "#fef3c7", color: "#92400e" },
+  badgeMapped: { backgroundColor: SLATE_100, color: SLATE_600 },
+
+  // Workflow card
+  wfCard: {
+    borderWidth: 1,
+    borderColor: SLATE_200,
+    borderRadius: 8,
+    marginBottom: 10,
+    overflow: "hidden",
+  },
+  wfHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: SLATE_100,
+  },
+  wfTitle: { flex: 1, fontSize: 11, fontWeight: 600, color: SLATE_800 },
+  wfPattern: {
+    paddingHorizontal: 8,
+    paddingVertical: 1,
+    borderRadius: 999,
+    backgroundColor: BLUE,
+    color: WHITE,
+    fontSize: 8,
+    fontWeight: 500,
+  },
+  wfBody: { padding: 12 },
+
+  metricGrid: { flexDirection: "row", gap: 6, marginBottom: 10 },
+  metricBox: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: SLATE_200,
+    borderRadius: 6,
+    padding: 8,
+    minHeight: 64,
+  },
+  metricBoxLabel: {
+    fontSize: 7,
+    fontWeight: 500,
+    color: SLATE_500,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  metricBoxValues: { flexDirection: "row", alignItems: "center", marginTop: 4, gap: 3 },
+  metricBefore: { fontSize: 8, color: SLATE_600 },
+  metricArrow: { fontSize: 8, color: SLATE_400 },
+  metricAfter: { fontSize: 8, color: SLATE_900, fontWeight: 600 },
+  metricImp: { fontSize: 7, color: GREEN, fontWeight: 600, marginTop: "auto" as any },
+
+  stepGrid: { flexDirection: "row", gap: 6, marginBottom: 10 },
+  stepCell: {
+    flex: 1,
+    flexDirection: "row",
+    backgroundColor: SLATE_50,
+    borderWidth: 1,
+    borderColor: SLATE_100,
+    borderRadius: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    gap: 6,
+  },
+  stepValue: { fontSize: 14, fontWeight: 700, color: SLATE_800 },
+  stepLabel: { fontSize: 7, color: SLATE_500 },
+
+  procGrid: { flexDirection: "row", gap: 12, marginTop: 6 },
+  procCol: { flex: 1 },
+  procLabel: {
+    paddingHorizontal: 8,
+    paddingVertical: 1,
+    borderRadius: 999,
+    fontSize: 7,
+    fontWeight: 600,
+    alignSelf: "flex-start",
     marginBottom: 6,
   },
-  workflowMetric: {
+  procLabelCurrent: { backgroundColor: SLATE_100, color: SLATE_600 },
+  procLabelTarget: { backgroundColor: GREEN, color: WHITE },
+  node: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 3,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: SLATE_100,
+    borderRadius: 6,
+    padding: 6,
+    marginBottom: 2,
   },
+  nodeCurrent: { backgroundColor: SLATE_50 },
+  nodeTarget: { backgroundColor: WHITE },
+  nodeCircle: {
+    width: 14,
+    height: 14,
+    borderRadius: 999,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  nodeCircleText: { fontSize: 7, fontWeight: 700 },
+  nodeBody: { flex: 1 },
+  nodeName: { fontSize: 8, fontWeight: 500, color: SLATE_800 },
+  nodeChips: { fontSize: 7, color: SLATE_500, marginTop: 2 },
+  nodeBadgeRow: { flexDirection: "row", flexWrap: "wrap", gap: 3, marginTop: 3 },
+  nodeBadge: { paddingHorizontal: 5, paddingVertical: 0.5, borderRadius: 999, fontSize: 6.5, fontWeight: 500 },
 
-  // -- Systems list --------------------------------------------------------
-  systemRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 3,
-    paddingHorizontal: 4,
-    borderBottomWidth: 0.5,
-    borderBottomColor: "#f3f4f6",
+  // Assessment
+  overall: {
+    borderWidth: 1,
+    borderColor: SLATE_200,
+    borderRadius: 8,
+    padding: 22,
+    alignItems: "center",
+    marginBottom: 12,
   },
-  systemName: {
+  overallLabel: {
     fontSize: 8,
-    color: "#374151",
+    color: SLATE_500,
+    textTransform: "uppercase",
+    letterSpacing: 2,
+    marginBottom: 6,
   },
-  systemBadge: {
-    fontSize: 7,
-    color: GRAY,
-    backgroundColor: LIGHT_GRAY,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    borderRadius: 3,
-  },
-
-  // -- Misc ----------------------------------------------------------------
-  paragraph: {
+  overallPct: { fontSize: 42, fontWeight: 700 },
+  overallBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 2,
+    borderRadius: 999,
+    color: WHITE,
     fontSize: 10,
-    lineHeight: 1.5,
-    color: "#374151",
-    marginBottom: 8,
+    fontWeight: 600,
+    marginTop: 6,
+  },
+  overallDesc: { fontSize: 9, color: SLATE_600, textAlign: "center", marginTop: 8, maxWidth: 360 },
+  overallCompletion: { fontSize: 8, color: SLATE_400, marginTop: 4 },
+
+  catGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 10 },
+  catCard: {
+    width: "48.5%",
+    borderWidth: 1,
+    borderColor: SLATE_200,
+    borderRadius: 8,
+    padding: 10,
+  },
+  catHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
+  catTitle: { fontSize: 10, fontWeight: 600, color: SLATE_800, flex: 1 },
+  catScore: { fontSize: 16, fontWeight: 700 },
+  catBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 0.5,
+    borderRadius: 999,
+    fontSize: 7,
+    fontWeight: 600,
+    color: WHITE,
+    alignSelf: "flex-end",
+  },
+  catProgTrack: { height: 4, backgroundColor: SLATE_100, borderRadius: 999, overflow: "hidden", marginVertical: 4 },
+  catProgFill: { height: "100%" as any, borderRadius: 999 },
+  catSubRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 3 },
+  catSubLabel: { fontSize: 7, color: SLATE_500, flex: 1 },
+  catSubTrack: { width: 56, height: 3, backgroundColor: SLATE_100, borderRadius: 999, overflow: "hidden" },
+  catSubFill: { height: "100%" as any, borderRadius: 999 },
+  catSubScore: { fontSize: 7, fontWeight: 500, width: 22, textAlign: "right" },
+  catDesc: { fontSize: 7, color: SLATE_500, fontStyle: "italic", marginTop: 6 },
+
+  // Gap pills
+  gapPill: {
+    paddingHorizontal: 6,
+    paddingVertical: 0.5,
+    borderRadius: 999,
+    color: WHITE,
+    fontSize: 8,
+    fontWeight: 700,
   },
 });
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-function formatCurrencyPdf(amount: number): string {
-  if (Math.abs(amount) >= 1_000_000) return `$${(amount / 1_000_000).toFixed(1)}M`;
-  if (Math.abs(amount) >= 1_000) return `$${(amount / 1_000).toFixed(0)}K`;
-  return `$${amount.toFixed(0)}`;
-}
-
-function parseCurrency(val: string): number {
-  if (!val) return 0;
-  let clean = val.replace(/[$,\s]/g, "");
-  clean = clean.replace(/\/(yr|year|mo|month|quarter|qtr|week|day|annual)$/i, "");
-  clean = clean.replace(/per\s*(year|month|quarter|week|day|annum)$/i, "");
-  clean = clean.replace(/(annually|monthly|yearly)$/i, "");
-  if (/m$/i.test(clean)) return parseFloat(clean) * 1_000_000;
-  if (/k$/i.test(clean)) return parseFloat(clean) * 1_000;
-  if (/b$/i.test(clean)) return parseFloat(clean) * 1_000_000_000;
-  const num = parseFloat(clean);
-  return isNaN(num) ? 0 : num;
-}
-
-function parseDurationToHours(duration: string): number {
+function parseDurationToHours(duration: string | undefined | null): number {
   if (!duration || duration === "--") return 0;
-  const lower = duration.toLowerCase().trim();
+  const lower = String(duration).toLowerCase().trim();
   const num = parseFloat(lower.replace(/[^0-9.]/g, ""));
   if (isNaN(num)) return 0;
   if (lower.includes("day")) return num * 8;
@@ -317,8 +485,786 @@ function parseDurationToHours(duration: string): number {
   return num;
 }
 
+function cleanMetric(v: string | undefined | null): string {
+  if (!v) return "";
+  return String(v).replace(/[\n\r]+/g, " ").trim();
+}
+
+interface UCRow {
+  useCaseId: string;
+  useCaseName: string;
+  currentHours: number;
+  targetHours: number;
+  hoursSaved: number;
+  costSaved: number;
+  automationPct: number;
+  status: "High Impact" | "Medium Impact" | "Low Impact" | "Mapped";
+}
+
+function rowOf(wf: WorkflowMap): UCRow {
+  const cur = (wf.currentState || []) as any[];
+  const tgt = (wf.targetState || []) as any[];
+  let ch = 0, th = 0, ai = 0;
+  for (const n of cur) ch += parseDurationToHours(n.duration);
+  for (const n of tgt) {
+    th += parseDurationToHours(n.duration);
+    if (n.isAIEnabled) ai++;
+  }
+  const cm = (wf as any).comparisonMetrics;
+  let costSaved = 0;
+  if (cm?.costReduction) {
+    const before = parseCurrencyString(cm.costReduction.before || "0");
+    const after = parseCurrencyString(cm.costReduction.after || "0");
+    costSaved = Math.max(0, before - after);
+  }
+  let status: UCRow["status"] = "Mapped";
+  if (cm?.timeReduction?.improvement) {
+    const imp = parseFloat(String(cm.timeReduction.improvement).replace(/[^0-9.]/g, ""));
+    if (!isNaN(imp)) {
+      if (imp >= 70) status = "High Impact";
+      else if (imp >= 40) status = "Medium Impact";
+      else status = "Low Impact";
+    }
+  }
+  return {
+    useCaseId: wf.useCaseId,
+    useCaseName: wf.useCaseName,
+    currentHours: ch,
+    targetHours: th,
+    hoursSaved: Math.max(0, ch - th),
+    costSaved,
+    automationPct: tgt.length > 0 ? (ai / tgt.length) * 100 : 0,
+    status,
+  };
+}
+
+function actorGlyph(actorType: string | undefined): string {
+  if (actorType === "ai_agent" || actorType === "ai") return "AI";
+  if (actorType === "human") return "H";
+  return "S";
+}
+
 // ---------------------------------------------------------------------------
-// Props
+// Components
+// ---------------------------------------------------------------------------
+function PageHeader({ companyName }: { companyName: string }) {
+  return (
+    <View style={s.header} fixed>
+      <Image src={LOGO_BLUE_URL} style={s.headerLogo} />
+      <Text style={s.headerLabel}>{companyName} — AI Workflow Assessment</Text>
+    </View>
+  );
+}
+
+function PageFooter() {
+  return (
+    <View style={s.footer} fixed>
+      <Text style={s.footerText}>Confidential — BlueAlly Technology Solutions</Text>
+      <Text
+        style={s.pageNum}
+        render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`}
+      />
+    </View>
+  );
+}
+
+function CoverPage({
+  companyName,
+  generatedAt,
+  totalHoursSaved,
+  totalCostSaved,
+}: {
+  companyName: string;
+  generatedAt: string;
+  totalHoursSaved: number;
+  totalCostSaved: number;
+}) {
+  return (
+    <Page size="A4" style={s.cover}>
+      <View style={{ marginTop: 60 }}>
+        <Image src={LOGO_WHITE_URL} style={s.coverLogo} />
+      </View>
+      <Text style={s.coverEyebrow}>AI CONSULTING</Text>
+      <Text style={s.coverTitle}>AI Workflow Orchestration</Text>
+      <Text style={s.coverTitle}>Assessment Report</Text>
+      <Text style={s.coverCompany}>{companyName}</Text>
+      <View style={s.coverMetricsRow}>
+        <View>
+          <Text style={s.coverMetricLabel}>Total Hours Saved</Text>
+          <Text style={s.coverMetricValue}>
+            {Math.round(totalHoursSaved).toLocaleString()}
+          </Text>
+        </View>
+        <View>
+          <Text style={s.coverMetricLabel}>Total Cost Saved</Text>
+          <Text style={s.coverMetricValue}>{formatCurrency(totalCostSaved)}</Text>
+        </View>
+      </View>
+      <Text style={s.coverDate}>{generatedAt}</Text>
+      <Text style={s.coverConfidential}>
+        This document contains proprietary and confidential information.
+        Distribution is limited to authorized personnel only.
+      </Text>
+    </Page>
+  );
+}
+
+function KpiCard({
+  iconText,
+  iconColor,
+  value,
+  label,
+}: {
+  iconText: string;
+  iconColor: string;
+  value: string;
+  label: string;
+}) {
+  return (
+    <View style={s.kpiCard} wrap={false}>
+      <View style={[s.kpiIcon, { backgroundColor: `${iconColor}1F` }]}>
+        <Text style={[s.kpiIconText, { color: iconColor }]}>{iconText}</Text>
+      </View>
+      <Text style={s.kpiValue}>{value}</Text>
+      <Text style={s.kpiLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function ExecutiveSnapshotPage({
+  companyName,
+  rows,
+  totalHoursSaved,
+  totalCostSaved,
+  avgAutomation,
+}: {
+  companyName: string;
+  rows: UCRow[];
+  totalHoursSaved: number;
+  totalCostSaved: number;
+  avgAutomation: number;
+}) {
+  const totals = {
+    cur: rows.reduce((s, r) => s + r.currentHours, 0),
+    tgt: rows.reduce((s, r) => s + r.targetHours, 0),
+    saved: rows.reduce((s, r) => s + r.hoursSaved, 0),
+    cost: rows.reduce((s, r) => s + r.costSaved, 0),
+    aut:
+      rows.length > 0
+        ? rows.reduce((s, r) => s + r.automationPct, 0) / rows.length
+        : 0,
+  };
+  const widths = ["32%", "12%", "12%", "12%", "13%", "10%", "9%"];
+  const statusStyle = (st: UCRow["status"]) => {
+    switch (st) {
+      case "High Impact":
+        return s.badgeHigh;
+      case "Medium Impact":
+        return s.badgeMedium;
+      case "Low Impact":
+        return s.badgeLow;
+      default:
+        return s.badgeMapped;
+    }
+  };
+
+  return (
+    <Page size="A4" style={s.page} wrap>
+      <PageHeader companyName={companyName} />
+
+      <View style={s.section} wrap={false}>
+        <Text style={s.h2}>Executive Snapshot</Text>
+        <Text style={s.lede}>
+          Aggregate impact across the mapped use cases and AI-enabled workflows.
+        </Text>
+      </View>
+
+      <View style={s.kpiGrid} wrap={false}>
+        <KpiCard
+          iconText="H"
+          iconColor={BLUE}
+          value={Math.round(totalHoursSaved).toLocaleString()}
+          label="Hours Saved"
+        />
+        <KpiCard
+          iconText="$"
+          iconColor={GREEN}
+          value={formatCurrency(totalCostSaved)}
+          label="Cost Saved"
+        />
+        <KpiCard
+          iconText="A"
+          iconColor={AMBER}
+          value={`${Math.round(avgAutomation)}%`}
+          label="Avg Automation"
+        />
+        <KpiCard
+          iconText="W"
+          iconColor={NAVY}
+          value={String(rows.length)}
+          label="Workflows Mapped"
+        />
+      </View>
+
+      <View style={s.section}>
+        <Text style={s.h3}>Use Case Benefits</Text>
+        <View style={s.table}>
+          <View style={s.thRow} fixed>
+            <Text style={[s.th, { width: widths[0] }]}>Use Case</Text>
+            <Text style={[s.th, { width: widths[1], textAlign: "right" }]}>Current Hrs</Text>
+            <Text style={[s.th, { width: widths[2], textAlign: "right" }]}>Target Hrs</Text>
+            <Text style={[s.th, { width: widths[3], textAlign: "right" }]}>Hours Saved</Text>
+            <Text style={[s.th, { width: widths[4], textAlign: "right" }]}>Cost Saved</Text>
+            <Text style={[s.th, { width: widths[5], textAlign: "right" }]}>Auto</Text>
+            <Text style={[s.th, { width: widths[6], textAlign: "center" }]}>Status</Text>
+          </View>
+          {rows.map((r, i) => (
+            <View key={r.useCaseId || i} style={[s.tr, i % 2 === 1 ? s.trAlt : {}]} wrap={false}>
+              <Text style={[s.tdName, { width: widths[0] }]}>{r.useCaseName || "—"}</Text>
+              <Text style={[s.num, { width: widths[1] }]}>{Math.round(r.currentHours).toLocaleString()}</Text>
+              <Text style={[s.num, { width: widths[2] }]}>{Math.round(r.targetHours).toLocaleString()}</Text>
+              <Text style={[s.numStrong, { width: widths[3] }]}>{Math.round(r.hoursSaved).toLocaleString()}</Text>
+              <Text style={[s.numStrong, { width: widths[4] }]}>{formatCurrency(r.costSaved)}</Text>
+              <Text style={[s.num, { width: widths[5] }]}>{Math.round(r.automationPct)}%</Text>
+              <View style={{ width: widths[6], alignItems: "center" }}>
+                <Text style={[s.badge, statusStyle(r.status)]}>{r.status}</Text>
+              </View>
+            </View>
+          ))}
+          <View style={s.tfootRow} wrap={false}>
+            <Text style={[s.tfootCell, { width: widths[0] }]}>Total</Text>
+            <Text style={[s.tfootCell, { width: widths[1], textAlign: "right" }]}>
+              {Math.round(totals.cur).toLocaleString()}
+            </Text>
+            <Text style={[s.tfootCell, { width: widths[2], textAlign: "right" }]}>
+              {Math.round(totals.tgt).toLocaleString()}
+            </Text>
+            <Text style={[s.tfootCell, { width: widths[3], textAlign: "right" }]}>
+              {Math.round(totals.saved).toLocaleString()}
+            </Text>
+            <Text style={[s.tfootCell, { width: widths[4], textAlign: "right" }]}>
+              {formatCurrency(totals.cost)}
+            </Text>
+            <Text style={[s.tfootCell, { width: widths[5], textAlign: "right" }]}>
+              {Math.round(totals.aut)}%
+            </Text>
+            <Text style={[s.tfootCell, { width: widths[6] }]}></Text>
+          </View>
+        </View>
+      </View>
+
+      <PageFooter />
+    </Page>
+  );
+}
+
+function WorkflowCard({ wf }: { wf: WorkflowMap }) {
+  const cm = (wf as any).comparisonMetrics || {};
+  const pattern = getPatternById((wf as any).agenticPattern || "");
+  const cur = (wf.currentState || []) as any[];
+  const tgt = (wf.targetState || []) as any[];
+  const aiSteps = tgt.filter((n) => n.isAIEnabled).length;
+  const hitlSteps = tgt.filter((n) => n.isHumanInTheLoop).length;
+
+  const metric = (label: string, m: any) => {
+    const b = cleanMetric(m?.before);
+    const a = cleanMetric(m?.after);
+    const imp = cleanMetric(m?.improvement);
+    return (
+      <View style={s.metricBox} key={label}>
+        <Text style={s.metricBoxLabel}>{label}</Text>
+        <View style={s.metricBoxValues}>
+          <Text style={s.metricBefore}>{b || "—"}</Text>
+          <Text style={s.metricArrow}>→</Text>
+          <Text style={s.metricAfter}>{a || "—"}</Text>
+        </View>
+        {imp && imp !== "N/A" ? (
+          <Text style={s.metricImp}>
+            {imp.toLowerCase().includes("improvement") ? imp : `${imp} improvement`}
+          </Text>
+        ) : (
+          <Text style={[s.metricImp, { color: "transparent" }]}>·</Text>
+        )}
+      </View>
+    );
+  };
+
+  const stepCell = (label: string, val: number, glyph: string, color: string) => (
+    <View style={s.stepCell} key={label}>
+      <View style={[s.nodeCircle, { backgroundColor: color, width: 18, height: 18 }]}>
+        <Text style={[s.nodeCircleText, { color: WHITE, fontSize: 8 }]}>{glyph}</Text>
+      </View>
+      <View>
+        <Text style={s.stepValue}>{val}</Text>
+        <Text style={s.stepLabel}>{label}</Text>
+      </View>
+    </View>
+  );
+
+  const renderNode = (node: any, idx: number, target: boolean) => {
+    const circleBg = target
+      ? node.isAIEnabled
+        ? GREEN
+        : SLATE_400
+      : SLATE_200;
+    const circleColor = target ? WHITE : SLATE_700;
+    const badges: { label: string; bg: string; fg: string }[] = [];
+    if (!target && node.isBottleneck) {
+      badges.push({ label: "Bottleneck", bg: "#fee2e2", fg: "#991b1b" });
+    }
+    if (target) {
+      if (node.isAIEnabled)
+        badges.push({ label: "AI-Enabled", bg: "#d1fae5", fg: "#065f46" });
+      if (node.automationLevel && node.automationLevel !== "manual")
+        badges.push({ label: String(node.automationLevel), bg: "#dbeafe", fg: "#1e40af" });
+      if (node.isHumanInTheLoop)
+        badges.push({ label: "HITL", bg: "#fef3c7", fg: "#92400e" });
+    }
+    const chipParts: string[] = [];
+    chipParts.push(`${actorGlyph(node.actorType)} ${node.actorName || node.actorType || ""}`);
+    if (node.duration) chipParts.push(node.duration);
+    if (node.systems && node.systems.length > 0)
+      chipParts.push((node.systems as string[]).join(", "));
+
+    return (
+      <View key={node.id || idx} style={[s.node, target ? s.nodeTarget : s.nodeCurrent]} wrap={false}>
+        <View style={[s.nodeCircle, { backgroundColor: circleBg }]}>
+          <Text style={[s.nodeCircleText, { color: circleColor }]}>
+            {node.stepNumber || idx + 1}
+          </Text>
+        </View>
+        <View style={s.nodeBody}>
+          <Text style={s.nodeName}>{node.name || ""}</Text>
+          <Text style={s.nodeChips}>{chipParts.join(" | ")}</Text>
+          {badges.length > 0 && (
+            <View style={s.nodeBadgeRow}>
+              {badges.map((b, bi) => (
+                <Text
+                  key={bi}
+                  style={[s.nodeBadge, { backgroundColor: b.bg, color: b.fg }]}
+                >
+                  {b.label}
+                </Text>
+              ))}
+            </View>
+          )}
+        </View>
+      </View>
+    );
+  };
+
+  return (
+    <View style={s.wfCard} wrap={false}>
+      <View style={s.wfHeader}>
+        <Text style={s.wfTitle}>{wf.useCaseName || "Workflow"}</Text>
+        {pattern && (
+          <Text style={s.wfPattern}>{pattern.name.split("(")[0].trim()}</Text>
+        )}
+      </View>
+      <View style={s.wfBody}>
+        <View style={s.metricGrid}>
+          {metric("Time", cm.timeReduction)}
+          {metric("Cost", cm.costReduction)}
+          {metric("Quality", cm.qualityImprovement)}
+          {metric("Throughput", cm.throughputIncrease)}
+        </View>
+        <View style={s.stepGrid}>
+          {stepCell("Current Steps", cur.length, "S", SLATE_500)}
+          {stepCell("Target Steps", tgt.length, "S", SLATE_500)}
+          {stepCell("AI-Enabled", aiSteps, "AI", GREEN)}
+          {stepCell("HITL Checkpoints", hitlSteps, "H", AMBER)}
+        </View>
+        {(cur.length > 0 || tgt.length > 0) && (
+          <View>
+            <Text style={s.h3}>Process Comparison</Text>
+            <View style={s.procGrid}>
+              <View style={s.procCol}>
+                <Text style={[s.procLabel, s.procLabelCurrent]}>Current Process</Text>
+                {cur.map((n, i) => renderNode(n, i, false))}
+              </View>
+              <View style={s.procCol}>
+                <Text style={[s.procLabel, s.procLabelTarget]}>AI-Powered Process</Text>
+                {tgt.map((n, i) => renderNode(n, i, true))}
+              </View>
+            </View>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
+function WorkflowsPage({
+  companyName,
+  workflows,
+}: {
+  companyName: string;
+  workflows: WorkflowMap[];
+}) {
+  if (workflows.length === 0) return null;
+  return (
+    <Page size="A4" style={s.page} wrap>
+      <PageHeader companyName={companyName} />
+      <View style={s.section} wrap={false}>
+        <Text style={s.h2}>Workflow Transformations</Text>
+        <Text style={s.lede}>
+          End-to-end process redesign for each prioritized use case, with
+          before/after metrics and step-by-step orchestration.
+        </Text>
+      </View>
+      {workflows.map((wf) => (
+        <WorkflowCard key={wf.useCaseId} wf={wf} />
+      ))}
+      <PageFooter />
+    </Page>
+  );
+}
+
+interface SystemRow {
+  name: string;
+  useCases: string[];
+  totalStepReferences: number;
+  integrationTypes: string[];
+}
+
+function SystemsPage({
+  companyName,
+  systems,
+}: {
+  companyName: string;
+  systems: SystemRow[];
+}) {
+  if (systems.length === 0) return null;
+  const top = systems.slice(0, 20);
+  const widths = ["6%", "44%", "12%", "12%", "26%"];
+  return (
+    <Page size="A4" style={s.page} wrap>
+      <PageHeader companyName={companyName} />
+      <View style={s.section} wrap={false}>
+        <Text style={s.h2}>Systems, Data &amp; Integrations</Text>
+        <Text style={s.lede}>
+          Systems appearing in multiple use cases represent shared infrastructure
+          that can accelerate implementation.
+        </Text>
+      </View>
+      <View style={s.table}>
+        <View style={s.thRow} fixed>
+          <Text style={[s.th, { width: widths[0] }]}>#</Text>
+          <Text style={[s.th, { width: widths[1] }]}>System</Text>
+          <Text style={[s.th, { width: widths[2], textAlign: "right" }]}>Use Cases</Text>
+          <Text style={[s.th, { width: widths[3], textAlign: "right" }]}>Step Refs</Text>
+          <Text style={[s.th, { width: widths[4] }]}>Integration</Text>
+        </View>
+        {top.map((sys, i) => (
+          <View key={sys.name} style={[s.tr, i % 2 === 1 ? s.trAlt : {}]} wrap={false}>
+            <Text style={[s.ctr, { width: widths[0], color: SLATE_400 }]}>{i + 1}</Text>
+            <Text style={[s.tdName, { width: widths[1] }]}>{sys.name}</Text>
+            <Text style={[s.num, { width: widths[2] }]}>{sys.useCases.length}</Text>
+            <Text style={[s.num, { width: widths[3] }]}>{sys.totalStepReferences}</Text>
+            <Text style={[s.tdRoot, { width: widths[4], fontSize: 8, color: SLATE_500 }]}>
+              {sys.integrationTypes.length > 0
+                ? sys.integrationTypes.map((t) => t.replace(/_/g, " ")).join(", ")
+                : "—"}
+            </Text>
+          </View>
+        ))}
+      </View>
+      <PageFooter />
+    </Page>
+  );
+}
+
+function CategoryCard({ cat }: { cat: CategoryScore }) {
+  const meta = CATEGORY_METADATA[cat.category];
+  const th = ASSESSMENT_STATUS_THRESHOLDS.find((t) => cat.percentage >= t.min);
+  const pct = Math.round(cat.percentage * 100);
+  return (
+    <View style={s.catCard} wrap={false}>
+      <View style={s.catHeader}>
+        <View
+          style={[
+            s.kpiIcon,
+            { backgroundColor: `${meta.color}25`, width: 22, height: 22, marginBottom: 0 },
+          ]}
+        >
+          <Text style={[s.kpiIconText, { color: meta.color, fontSize: 10 }]}>
+            {meta.icon[0]}
+          </Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={s.catTitle}>{meta.label}</Text>
+          <Text style={{ fontSize: 8, color: SLATE_500 }}>
+            {cat.answeredCount}/{cat.questionCount} answered
+          </Text>
+        </View>
+        <View style={{ alignItems: "flex-end" }}>
+          <Text style={[s.catScore, { color: th?.color }]}>{pct}%</Text>
+          {th && (
+            <Text style={[s.catBadge, { backgroundColor: th.color }]}>{th.label}</Text>
+          )}
+        </View>
+      </View>
+      <View style={s.catProgTrack}>
+        <View
+          style={[s.catProgFill, { width: `${pct}%`, backgroundColor: th?.color }]}
+        />
+      </View>
+      {cat.subCategories.map((sub) => {
+        const subPct = Math.round(sub.percentage * 100);
+        const subTh = ASSESSMENT_STATUS_THRESHOLDS.find((t) => sub.percentage >= t.min);
+        return (
+          <View key={sub.subCategory} style={s.catSubRow}>
+            <Text style={s.catSubLabel}>{sub.subCategory}</Text>
+            <View style={s.catSubTrack}>
+              <View
+                style={[s.catSubFill, { width: `${subPct}%`, backgroundColor: subTh?.color }]}
+              />
+            </View>
+            <Text style={[s.catSubScore, { color: subTh?.color }]}>{subPct}%</Text>
+          </View>
+        );
+      })}
+      {cat.statusDescription && (
+        <Text style={s.catDesc}>{cat.statusDescription}</Text>
+      )}
+    </View>
+  );
+}
+
+function AssessmentPage({
+  companyName,
+  assessment,
+  resolveUcName,
+}: {
+  companyName: string;
+  assessment: AssessmentData;
+  resolveUcName: (id: string) => string;
+}) {
+  const scores = assessment.scores;
+  if (!scores) return null;
+  const overallPct = Math.round(scores.overallPercentage * 100);
+  const overallTh = ASSESSMENT_STATUS_THRESHOLDS.find(
+    (t) => scores.overallPercentage >= t.min,
+  );
+
+  const allGaps = scores.useCaseScores
+    .flatMap((uc: UseCaseAssessmentScore) =>
+      uc.gaps.map((g) => ({ ...g, useCaseName: resolveUcName(uc.useCaseName) })),
+    )
+    .sort((a, b) => b.gapSize - a.gapSize)
+    .slice(0, 5);
+
+  const gapWidths = ["32%", "16%", "10%", "10%", "10%", "22%"];
+  const ucWidths = ["46%", "22%", "16%", "16%"];
+
+  return (
+    <Page size="A4" style={s.page} wrap>
+      <PageHeader companyName={companyName} />
+      <View style={s.section} wrap={false}>
+        <Text style={s.h2}>AI Readiness Assessment</Text>
+        <Text style={s.lede}>
+          Organizational readiness across skills, data, infrastructure, and
+          governance dimensions.
+        </Text>
+      </View>
+
+      <View style={s.overall} wrap={false}>
+        <Text style={s.overallLabel}>Overall AI Readiness</Text>
+        <Text style={[s.overallPct, { color: overallTh?.color }]}>{overallPct}%</Text>
+        {overallTh && (
+          <Text style={[s.overallBadge, { backgroundColor: overallTh.color }]}>
+            {overallTh.label}
+          </Text>
+        )}
+        {scores.overallStatusDescription && (
+          <Text style={s.overallDesc}>{scores.overallStatusDescription}</Text>
+        )}
+        <Text style={s.overallCompletion}>
+          {scores.answeredQuestions} of {scores.totalQuestions} questions answered
+          ({Math.round(scores.completionPercentage * 100)}% complete)
+        </Text>
+      </View>
+
+      <View style={s.catGrid}>
+        {scores.categories.map((cat) => (
+          <CategoryCard key={cat.category} cat={cat} />
+        ))}
+      </View>
+
+      {allGaps.length > 0 && (
+        <View style={s.section}>
+          <Text style={s.h3}>Top Readiness Gaps</Text>
+          <View style={s.table}>
+            <View style={s.thRow} fixed>
+              <Text style={[s.th, { width: gapWidths[0] }]}>Area</Text>
+              <Text style={[s.th, { width: gapWidths[1] }]}>Category</Text>
+              <Text style={[s.th, { width: gapWidths[2], textAlign: "center" }]}>Current</Text>
+              <Text style={[s.th, { width: gapWidths[3], textAlign: "center" }]}>Target</Text>
+              <Text style={[s.th, { width: gapWidths[4], textAlign: "center" }]}>Gap</Text>
+              <Text style={[s.th, { width: gapWidths[5] }]}>Use Case</Text>
+            </View>
+            {allGaps.map((g, i) => {
+              const meta = CATEGORY_METADATA[g.category];
+              const color = g.gapSize >= 3 ? RED : g.gapSize >= 2 ? AMBER : BLUE;
+              return (
+                <View key={i} style={[s.tr, i % 2 === 1 ? s.trAlt : {}]} wrap={false}>
+                  <View style={{ width: gapWidths[0] }}>
+                    <Text style={s.tdName}>{g.questionText}</Text>
+                    <Text style={{ fontSize: 7, color: SLATE_400, marginTop: 1 }}>
+                      {g.subCategory}
+                    </Text>
+                  </View>
+                  <Text style={[s.tdRoot, { width: gapWidths[1], color: meta?.color, fontWeight: 500 }]}>
+                    {meta?.label || g.category}
+                  </Text>
+                  <Text style={[s.ctr, { width: gapWidths[2] }]}>{g.currentScore}</Text>
+                  <Text style={[s.ctr, { width: gapWidths[3] }]}>{g.targetScore}</Text>
+                  <View style={{ width: gapWidths[4], alignItems: "center" }}>
+                    <Text style={[s.gapPill, { backgroundColor: color }]}>{g.gapSize}</Text>
+                  </View>
+                  <Text style={[s.tdRoot, { width: gapWidths[5], fontSize: 8, color: SLATE_500 }]}>
+                    {g.useCaseName}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      )}
+
+      {scores.useCaseScores.length > 0 && (
+        <View style={s.section}>
+          <Text style={s.h3}>Use Case Readiness</Text>
+          <View style={s.table}>
+            <View style={s.thRow} fixed>
+              <Text style={[s.th, { width: ucWidths[0] }]}>Use Case</Text>
+              <Text style={[s.th, { width: ucWidths[1], textAlign: "center" }]}>Status</Text>
+              <Text style={[s.th, { width: ucWidths[2], textAlign: "center" }]}>Questions</Text>
+              <Text style={[s.th, { width: ucWidths[3], textAlign: "center" }]}>Gaps</Text>
+            </View>
+            {scores.useCaseScores.map((uc, i) => {
+              const ucTh = ASSESSMENT_STATUS_THRESHOLDS.find(
+                (t) => uc.percentage >= t.min,
+              );
+              const ucPct = Math.round(uc.percentage * 100);
+              return (
+                <React.Fragment key={uc.useCaseId}>
+                  <View style={[s.tr, i % 2 === 1 ? s.trAlt : {}]} wrap={false}>
+                    <Text style={[s.tdName, { width: ucWidths[0] }]}>
+                      {resolveUcName(uc.useCaseName)}{" "}
+                      <Text style={{ color: SLATE_400, fontSize: 8, fontWeight: 400 }}>
+                        ({ucPct}%)
+                      </Text>
+                    </Text>
+                    <View style={{ width: ucWidths[1], alignItems: "center" }}>
+                      <Text
+                        style={[s.badge, { backgroundColor: ucTh?.color, color: WHITE }]}
+                      >
+                        {ucTh?.label}
+                      </Text>
+                    </View>
+                    <Text style={[s.ctr, { width: ucWidths[2] }]}>{uc.mappedQuestionIds.length}</Text>
+                    <View style={{ width: ucWidths[3], alignItems: "center" }}>
+                      {uc.gaps.length > 0 ? (
+                        <Text
+                          style={[
+                            s.badge,
+                            { backgroundColor: "#fee2e2", color: "#b91c1c" },
+                          ]}
+                        >
+                          {uc.gaps.length}
+                        </Text>
+                      ) : (
+                        <Text style={[s.tdRoot, { color: GREEN, fontWeight: 600 }]}>
+                          OK
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                  {uc.gaps.length > 0 &&
+                    uc.gaps.map((gap, gi) => {
+                      const sev = gap.gapSize >= 3 ? RED : gap.gapSize >= 2 ? AMBER : BLUE;
+                      const tip = gap.tip || assessment.gapGuidance?.[gap.questionId] || "";
+                      return (
+                        <View
+                          key={gi}
+                          style={{
+                            paddingVertical: 4,
+                            paddingLeft: 24,
+                            paddingRight: 8,
+                            backgroundColor: SLATE_50,
+                            borderBottomWidth: 0.5,
+                            borderBottomColor: SLATE_100,
+                          }}
+                          wrap={false}
+                        >
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              gap: 4,
+                              marginBottom: 2,
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            <Text
+                              style={[
+                                s.gapPill,
+                                { backgroundColor: sev, fontSize: 7 },
+                              ]}
+                            >
+                              Gap: {gap.gapSize}
+                            </Text>
+                            <Text
+                              style={{
+                                fontSize: 7,
+                                fontWeight: 600,
+                                color: SLATE_600,
+                                textTransform: "capitalize",
+                              }}
+                            >
+                              {gap.category}
+                            </Text>
+                            <Text style={{ fontSize: 7, color: SLATE_400 }}>|</Text>
+                            <Text style={{ fontSize: 7, color: SLATE_500 }}>
+                              {gap.subCategory}
+                            </Text>
+                          </View>
+                          <Text style={{ fontSize: 8, color: SLATE_700 }}>
+                            {gap.questionText}
+                          </Text>
+                          {tip && (
+                            <Text
+                              style={{
+                                fontSize: 7,
+                                color: SLATE_500,
+                                fontStyle: "italic",
+                                marginTop: 2,
+                                paddingLeft: 6,
+                                borderLeftWidth: 1,
+                                borderLeftColor: SLATE_300,
+                              }}
+                            >
+                              {tip}
+                            </Text>
+                          )}
+                        </View>
+                      );
+                    })}
+                </React.Fragment>
+              );
+            })}
+          </View>
+        </View>
+      )}
+
+      <PageFooter />
+    </Page>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Props (kept compatible with Dashboard's existing call site)
 // ---------------------------------------------------------------------------
 export interface PDFReportProps {
   companyName: string;
@@ -331,737 +1277,81 @@ export interface PDFReportProps {
   strategicThemes: any[];
   frictionPoints: any[];
   executiveDashboard: any;
+  assessment?: AssessmentData | null;
 }
 
 // ---------------------------------------------------------------------------
-// Shared header / footer (rendered on every content page via `fixed`)
+// Systems aggregation (small, pure)
 // ---------------------------------------------------------------------------
-function PageHeader({ companyName }: { companyName: string }) {
-  return (
-    <View style={styles.header} fixed>
-      <Image src={LOGO_BLUE_URL} style={styles.headerLogoImage} />
-      <Text style={styles.headerDate}>
-        {companyName} — AI Workflow Assessment
-      </Text>
-    </View>
-  );
-}
-
-function PageFooter() {
-  return (
-    <View style={styles.footer} fixed>
-      <Text style={styles.footerText}>
-        Confidential — BlueAlly Technology Solutions
-      </Text>
-      <Text
-        style={styles.pageNumber}
-        render={({ pageNumber, totalPages }) =>
-          `${pageNumber} / ${totalPages}`
-        }
-      />
-    </View>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Cover Page
-// ---------------------------------------------------------------------------
-function CoverPage({
-  companyName,
-  generatedAt,
-}: {
-  companyName: string;
-  generatedAt: string;
-}) {
-  return (
-    <Page size="A4" style={styles.coverPage}>
-      <Image src={LOGO_WHITE_URL} style={styles.coverLogoImage} />
-      <Text style={styles.coverSubtitle}>AI CONSULTING</Text>
-      <Text style={styles.coverTitle}>AI Workflow Orchestration</Text>
-      <Text style={styles.coverTitle}>Assessment Report</Text>
-      <Text style={styles.coverCompany}>{companyName}</Text>
-      <Text style={styles.coverDate}>{generatedAt}</Text>
-      <Text style={styles.coverConfidential}>
-        This document contains proprietary and confidential information.
-        Distribution is limited to authorized personnel only.
-      </Text>
-    </Page>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Workflow Impact Dashboard Page (NEW)
-// ---------------------------------------------------------------------------
-function DashboardMetricsPage({ props }: { props: PDFReportProps }) {
-  const { workflowMaps } = props;
-  if (!workflowMaps || workflowMaps.length === 0) return null;
-
-  // Compute per-use-case metrics
-  const rows = workflowMaps.map((wf: any) => {
-    let currentHours = 0;
-    let targetHours = 0;
-    let aiEnabled = 0;
-    const totalTarget = (wf.targetState || []).length;
-
-    for (const n of (wf.currentState || [])) {
-      currentHours += parseDurationToHours(n.duration);
-    }
-    for (const n of (wf.targetState || [])) {
-      targetHours += parseDurationToHours(n.duration);
-      if (n.isAIEnabled) aiEnabled++;
-    }
-
-    let costSaved = 0;
-    if (wf.comparisonMetrics?.costReduction) {
-      const before = parseCurrency(wf.comparisonMetrics.costReduction.before || "0");
-      const after = parseCurrency(wf.comparisonMetrics.costReduction.after || "0");
-      costSaved = Math.max(0, before - after);
-    }
-
-    return {
-      name: wf.useCaseName || "—",
-      currentHours,
-      targetHours,
-      hoursSaved: Math.max(0, currentHours - targetHours),
-      costSaved,
-      automationPct: totalTarget > 0 ? (aiEnabled / totalTarget) * 100 : 0,
-    };
-  });
-
-  const totalHoursSaved = rows.reduce((s, r) => s + r.hoursSaved, 0);
-  const totalCostSaved = rows.reduce((s, r) => s + r.costSaved, 0);
-  const avgAutomation = rows.length > 0
-    ? rows.reduce((s, r) => s + r.automationPct, 0) / rows.length
-    : 0;
-
-  const cols = [
-    { label: "Use Case", width: "30%" as const },
-    { label: "Current Hrs", width: "14%" as const },
-    { label: "Target Hrs", width: "14%" as const },
-    { label: "Hours Saved", width: "14%" as const },
-    { label: "Cost Saved", width: "14%" as const },
-    { label: "Automation", width: "14%" as const },
-  ];
-
-  return (
-    <Page size="A4" style={styles.page}>
-      <PageHeader companyName={props.companyName} />
-      <Text style={styles.sectionTitle}>Workflow Impact Dashboard</Text>
-
-      <View style={styles.metricRow}>
-        <View style={styles.metricCard}>
-          <Text style={styles.metricValue}>
-            {Math.round(totalHoursSaved).toLocaleString()}
-          </Text>
-          <Text style={styles.metricLabel}>Hours Saved Per Cycle</Text>
-        </View>
-        <View style={styles.metricCard}>
-          <Text style={styles.metricValue}>
-            {formatCurrencyPdf(totalCostSaved)}
-          </Text>
-          <Text style={styles.metricLabel}>Annual Cost Savings</Text>
-        </View>
-        <View style={styles.metricCard}>
-          <Text style={styles.metricValue}>{Math.round(avgAutomation)}%</Text>
-          <Text style={styles.metricLabel}>AI Automation Rate</Text>
-        </View>
-        <View style={styles.metricCard}>
-          <Text style={styles.metricValue}>{rows.length}</Text>
-          <Text style={styles.metricLabel}>Use Cases Mapped</Text>
-        </View>
-      </View>
-
-      <Text style={styles.subsectionTitle}>Per-Use-Case Breakdown</Text>
-
-      <View style={styles.tableHeader}>
-        {cols.map((c) => (
-          <Text key={c.label} style={[styles.tableHeaderText, { width: c.width }]}>
-            {c.label}
-          </Text>
-        ))}
-      </View>
-
-      {rows.map((r, i) => (
-        <View
-          key={`dm-${i}`}
-          style={[styles.tableRow, i % 2 === 1 ? styles.tableRowAlt : {}]}
-          wrap={false}
-        >
-          <Text style={[styles.tableCellText, { width: "30%" }]}>{r.name}</Text>
-          <Text style={[styles.tableCellText, { width: "14%", textAlign: "right" }]}>
-            {Math.round(r.currentHours)}
-          </Text>
-          <Text style={[styles.tableCellText, { width: "14%", textAlign: "right" }]}>
-            {Math.round(r.targetHours)}
-          </Text>
-          <Text style={[styles.tableCellText, { width: "14%", textAlign: "right", color: GREEN }]}>
-            {Math.round(r.hoursSaved)}
-          </Text>
-          <Text style={[styles.tableCellText, { width: "14%", textAlign: "right", color: GREEN }]}>
-            {formatCurrencyPdf(r.costSaved)}
-          </Text>
-          <Text style={[styles.tableCellText, { width: "14%", textAlign: "right" }]}>
-            {Math.round(r.automationPct)}%
-          </Text>
-        </View>
-      ))}
-
-      <PageFooter />
-    </Page>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Systems & Integration Requirements Page (NEW)
-// ---------------------------------------------------------------------------
-function SystemsSummaryPage({ props }: { props: PDFReportProps }) {
-  const { workflowMaps } = props;
-  if (!workflowMaps || workflowMaps.length === 0) return null;
-
-  const systemMap = new Map<string, Set<string>>();
-  const integrationTypeMap = new Map<string, number>();
-  const dataTypeMap = new Map<string, number>();
-
+function aggregateSystems(workflowMaps: WorkflowMap[]): SystemRow[] {
+  const m = new Map<
+    string,
+    { useCases: Set<string>; refs: number; intg: Set<string> }
+  >();
   for (const wf of workflowMaps) {
-    const allNodes = [...(wf.currentState || []), ...(wf.targetState || [])];
-    for (const node of allNodes) {
-      for (const sys of (node.systems || [])) {
-        if (!sys) continue;
-        if (!systemMap.has(sys)) systemMap.set(sys, new Set());
-        systemMap.get(sys)!.add(wf.useCaseName);
+    const all = [
+      ...((wf.currentState as any[]) || []),
+      ...((wf.targetState as any[]) || []),
+    ];
+    for (const node of all) {
+      const names = new Set<string>();
+      for (const sysName of (node.systems || []) as string[]) {
+        if (sysName) names.add(sysName);
       }
-      for (const sd of ((node as any).systemDetails || [])) {
-        if (sd.name) {
-          if (!systemMap.has(sd.name)) systemMap.set(sd.name, new Set());
-          systemMap.get(sd.name)!.add(wf.useCaseName);
-        }
-        if (sd.integrationType) {
-          integrationTypeMap.set(sd.integrationType, (integrationTypeMap.get(sd.integrationType) || 0) + 1);
-        }
-        if (sd.dataType) {
-          dataTypeMap.set(sd.dataType, (dataTypeMap.get(sd.dataType) || 0) + 1);
+      for (const sd of ((node as any).systemDetails || []) as any[]) {
+        if (sd?.name) names.add(sd.name);
+      }
+      for (const name of names) {
+        if (!m.has(name))
+          m.set(name, { useCases: new Set(), refs: 0, intg: new Set() });
+        const entry = m.get(name)!;
+        entry.useCases.add(wf.useCaseName);
+        entry.refs += 1;
+        for (const sd of ((node as any).systemDetails || []) as any[]) {
+          if (sd?.name === name && sd?.integrationType) {
+            entry.intg.add(String(sd.integrationType));
+          }
         }
       }
-    }
-    for (const dt of (wf.dataTypes || [])) {
-      if (dt) dataTypeMap.set(dt, (dataTypeMap.get(dt) || 0) + 1);
-    }
-    for (const ig of (wf.integrations || [])) {
-      if (!ig) continue;
-      if (!systemMap.has(ig)) systemMap.set(ig, new Set());
-      systemMap.get(ig)!.add(wf.useCaseName);
     }
   }
-
-  const systems = [...systemMap.entries()]
-    .map(([name, ucSet]) => ({ name, count: ucSet.size }))
-    .sort((a, b) => b.count - a.count);
-
-  const integrationTypes = [...integrationTypeMap.entries()]
-    .map(([type, count]) => ({ type, count }))
-    .sort((a, b) => b.count - a.count);
-
-  const dataTypes = [...dataTypeMap.entries()]
-    .map(([type, count]) => ({ type, count }))
-    .sort((a, b) => b.count - a.count);
-
-  if (systems.length === 0 && integrationTypes.length === 0 && dataTypes.length === 0) {
-    return null;
-  }
-
-  return (
-    <Page size="A4" style={styles.page}>
-      <PageHeader companyName={props.companyName} />
-      <Text style={styles.sectionTitle}>Systems & Integration Requirements</Text>
-
-      <Text style={styles.paragraph}>
-        This section summarizes the systems, integration types, and data formats
-        across all mapped workflows. Systems appearing in multiple use cases
-        represent shared infrastructure that can accelerate implementation.
-      </Text>
-
-      <View style={{ flexDirection: "row", gap: 16 }}>
-        {/* Systems column */}
-        <View style={{ flex: 2 }}>
-          <Text style={styles.subsectionTitle}>
-            Systems ({systems.length})
-          </Text>
-          {systems.slice(0, 15).map((s, i) => (
-            <View key={`sys-${i}`} style={styles.systemRow}>
-              <Text style={styles.systemName}>{s.name}</Text>
-              <Text style={styles.systemBadge}>
-                {s.count} use case{s.count !== 1 ? "s" : ""}
-              </Text>
-            </View>
-          ))}
-        </View>
-
-        {/* Right column: integration types + data types */}
-        <View style={{ flex: 1 }}>
-          {integrationTypes.length > 0 && (
-            <>
-              <Text style={styles.subsectionTitle}>Integration Types</Text>
-              {integrationTypes.map((it, i) => (
-                <View key={`it-${i}`} style={styles.systemRow}>
-                  <Text style={styles.systemName}>
-                    {it.type.replace(/_/g, " ")}
-                  </Text>
-                  <Text style={styles.systemBadge}>{it.count}</Text>
-                </View>
-              ))}
-            </>
-          )}
-
-          {dataTypes.length > 0 && (
-            <>
-              <Text style={[styles.subsectionTitle, { marginTop: 16 }]}>
-                Data Types
-              </Text>
-              {dataTypes.map((dt, i) => (
-                <View key={`dt-${i}`} style={styles.systemRow}>
-                  <Text style={styles.systemName}>
-                    {dt.type.replace(/_/g, " ")}
-                  </Text>
-                  <Text style={styles.systemBadge}>{dt.count}</Text>
-                </View>
-              ))}
-            </>
-          )}
-        </View>
-      </View>
-
-      <PageFooter />
-    </Page>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Executive Summary Page
-// ---------------------------------------------------------------------------
-function ExecutiveSummaryPage({ props }: { props: PDFReportProps }) {
-  const { executiveDashboard, benefits, useCases, priorities } = props;
-
-  const totalValue = executiveDashboard?.totalAnnualValue || 0;
-  const totalCost = benefits.reduce(
-    (s: number, b: any) => s + parseCurrency(b.costBenefit || ""),
-    0,
-  );
-  const totalRevenue = benefits.reduce(
-    (s: number, b: any) => s + parseCurrency(b.revenueBenefit || ""),
-    0,
-  );
-  const totalRisk = benefits.reduce(
-    (s: number, b: any) => s + parseCurrency(b.riskBenefit || ""),
-    0,
-  );
-  const totalCashFlow = benefits.reduce(
-    (s: number, b: any) => s + parseCurrency(b.cashFlowBenefit || ""),
-    0,
-  );
-  const champCount = priorities.filter((p: any) =>
-    p.priorityTier?.toLowerCase().includes("champion"),
-  ).length;
-
-  const breakdownItems = [
-    { label: "Cost Savings", value: totalCost, color: GREEN },
-    { label: "Revenue Growth", value: totalRevenue, color: BLUE },
-    { label: "Risk Mitigation", value: totalRisk, color: "#f59e0b" },
-    { label: "Cash Flow Improvement", value: totalCashFlow, color: NAVY },
-  ];
-
-  return (
-    <Page size="A4" style={styles.page}>
-      <PageHeader companyName={props.companyName} />
-      <Text style={styles.sectionTitle}>Executive Summary</Text>
-
-      <View style={styles.metricRow}>
-        <View style={styles.metricCard}>
-          <Text style={styles.metricValue}>{useCases.length}</Text>
-          <Text style={styles.metricLabel}>AI Use Cases</Text>
-        </View>
-        <View style={styles.metricCard}>
-          <Text style={styles.metricValue}>
-            {formatCurrencyPdf(totalValue)}
-          </Text>
-          <Text style={styles.metricLabel}>Total Annual Value</Text>
-        </View>
-        <View style={styles.metricCard}>
-          <Text style={styles.metricValue}>{champCount}</Text>
-          <Text style={styles.metricLabel}>Champions</Text>
-        </View>
-      </View>
-
-      <Text style={styles.subsectionTitle}>Benefits Breakdown</Text>
-      {breakdownItems.map((item) => (
-        <View key={item.label} style={styles.benefitRow}>
-          <Text style={styles.benefitLabel}>{item.label}</Text>
-          <Text style={[styles.benefitValue, { color: item.color }]}>
-            {formatCurrencyPdf(item.value)}
-          </Text>
-        </View>
-      ))}
-
-      <PageFooter />
-    </Page>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Top Use Cases Table Page
-// ---------------------------------------------------------------------------
-function UseCasesPage({ props }: { props: PDFReportProps }) {
-  const { priorities, benefits, readiness } = props;
-  if (!priorities || priorities.length === 0) return null;
-
-  const sorted = [...priorities].sort(
-    (a: any, b: any) => (b.priorityScore || 0) - (a.priorityScore || 0),
-  );
-
-  const cols = [
-    { label: "#", width: "5%" as const },
-    { label: "Use Case", width: "30%" as const },
-    { label: "Annual Value", width: "15%" as const },
-    { label: "Readiness", width: "12%" as const },
-    { label: "Priority", width: "12%" as const },
-    { label: "Tier", width: "13%" as const },
-    { label: "Phase", width: "13%" as const },
-  ];
-
-  return (
-    <Page size="A4" style={styles.page}>
-      <PageHeader companyName={props.companyName} />
-      <Text style={styles.sectionTitle}>Top Use Cases by Priority</Text>
-
-      <View style={styles.tableHeader}>
-        {cols.map((c) => (
-          <Text
-            key={c.label}
-            style={[styles.tableHeaderText, { width: c.width }]}
-          >
-            {c.label}
-          </Text>
-        ))}
-      </View>
-
-      {sorted.slice(0, 15).map((p: any, i: number) => {
-        const b = benefits.find((x: any) => x.useCaseId === p.useCaseId);
-        const r = readiness.find((x: any) => x.useCaseId === p.useCaseId);
-
-        return (
-          <View
-            key={p.useCaseId || `uc-${i}`}
-            style={[styles.tableRow, i % 2 === 1 ? styles.tableRowAlt : {}]}
-          >
-            <Text style={[styles.tableCellText, { width: "5%" }]}>
-              {i + 1}
-            </Text>
-            <Text style={[styles.tableCellText, { width: "30%" }]}>
-              {p.useCaseName || "—"}
-            </Text>
-            <Text
-              style={[styles.tableCellText, { width: "15%", fontWeight: 600 }]}
-            >
-              {b
-                ? formatCurrencyPdf(
-                    parseCurrency(b.totalAnnualValue || b.expectedValue || ""),
-                  )
-                : "—"}
-            </Text>
-            <Text style={[styles.tableCellText, { width: "12%" }]}>
-              {r ? `${(r.readinessScore * 10).toFixed(0)}%` : "—"}
-            </Text>
-            <Text
-              style={[styles.tableCellText, { width: "12%", fontWeight: 600 }]}
-            >
-              {p.priorityScore?.toFixed(1) || "—"}
-            </Text>
-            <Text style={[styles.tableCellText, { width: "13%" }]}>
-              {p.priorityTier || "—"}
-            </Text>
-            <Text style={[styles.tableCellText, { width: "13%" }]}>
-              {p.recommendedPhase || "—"}
-            </Text>
-          </View>
-        );
-      })}
-
-      <PageFooter />
-    </Page>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Benefits Breakdown Page
-// ---------------------------------------------------------------------------
-function BenefitsPage({ props }: { props: PDFReportProps }) {
-  const { benefits } = props;
-  if (!benefits || benefits.length === 0) return null;
-
-  const cols = [
-    { label: "Use Case", width: "28%" as const },
-    { label: "Cost", width: "14%" as const },
-    { label: "Revenue", width: "14%" as const },
-    { label: "Risk", width: "14%" as const },
-    { label: "Cash Flow", width: "14%" as const },
-    { label: "Total", width: "16%" as const },
-  ];
-
-  return (
-    <Page size="A4" style={styles.page} wrap>
-      <PageHeader companyName={props.companyName} />
-      <Text style={styles.sectionTitle}>Benefits Breakdown</Text>
-
-      <View style={styles.tableHeader}>
-        {cols.map((c) => (
-          <Text
-            key={c.label}
-            style={[styles.tableHeaderText, { width: c.width }]}
-          >
-            {c.label}
-          </Text>
-        ))}
-      </View>
-
-      {benefits.map((b: any, i: number) => {
-        const cost = parseCurrency(b.costBenefit || "");
-        const rev = parseCurrency(b.revenueBenefit || "");
-        const risk = parseCurrency(b.riskBenefit || "");
-        const cf = parseCurrency(b.cashFlowBenefit || "");
-        const total = parseCurrency(
-          b.totalAnnualValue || b.expectedValue || "",
-        );
-
-        return (
-          <View
-            key={b.useCaseId || `ben-${i}`}
-            style={[styles.tableRow, i % 2 === 1 ? styles.tableRowAlt : {}]}
-            wrap={false}
-          >
-            <Text style={[styles.tableCellText, { width: "28%" }]}>
-              {b.useCaseName || "—"}
-            </Text>
-            <Text style={[styles.tableCellText, { width: "14%" }]}>
-              {formatCurrencyPdf(cost)}
-            </Text>
-            <Text style={[styles.tableCellText, { width: "14%" }]}>
-              {formatCurrencyPdf(rev)}
-            </Text>
-            <Text style={[styles.tableCellText, { width: "14%" }]}>
-              {formatCurrencyPdf(risk)}
-            </Text>
-            <Text style={[styles.tableCellText, { width: "14%" }]}>
-              {formatCurrencyPdf(cf)}
-            </Text>
-            <Text
-              style={[styles.tableCellText, { width: "16%", fontWeight: 600 }]}
-            >
-              {formatCurrencyPdf(total || cost + rev + risk + cf)}
-            </Text>
-          </View>
-        );
-      })}
-
-      <PageFooter />
-    </Page>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Workflow Summaries Page
-// ---------------------------------------------------------------------------
-function WorkflowsPage({ props }: { props: PDFReportProps }) {
-  const { workflowMaps } = props;
-  if (!workflowMaps || workflowMaps.length === 0) return null;
-
-  return (
-    <Page size="A4" style={styles.page} wrap>
-      <PageHeader companyName={props.companyName} />
-      <Text style={styles.sectionTitle}>Workflow Transformations</Text>
-
-      {workflowMaps.slice(0, 10).map((wf: any, idx: number) => {
-        const cm = wf.comparisonMetrics || {};
-        const metricItems = [
-          { label: "Time", data: cm.timeReduction },
-          { label: "Cost", data: cm.costReduction },
-          { label: "Quality", data: cm.qualityImprovement },
-          { label: "Throughput", data: cm.throughputIncrease },
-        ];
-
-        return (
-          <View
-            key={wf.useCaseId || `wf-${idx}`}
-            style={styles.workflowCard}
-            wrap={false}
-          >
-            <Text style={styles.workflowTitle}>
-              {wf.useCaseName || "Workflow"}
-            </Text>
-            {wf.agenticPattern && (
-              <Text
-                style={[styles.tableCellText, { color: GRAY, marginBottom: 6 }]}
-              >
-                Pattern: {wf.agenticPattern}
-              </Text>
-            )}
-            <View style={{ flexDirection: "row", gap: 20 }}>
-              <View style={{ flex: 1 }}>
-                <Text
-                  style={[
-                    styles.tableCellText,
-                    { fontWeight: 600, marginBottom: 4 },
-                  ]}
-                >
-                  Current → Target
-                </Text>
-                {metricItems.map((m) => (
-                  <View key={m.label} style={styles.workflowMetric}>
-                    <Text style={styles.tableCellText}>{m.label}</Text>
-                    <Text style={styles.tableCellText}>
-                      {m.data?.before || "—"} → {m.data?.after || "—"} (
-                      {m.data?.improvement || "—"})
-                    </Text>
-                  </View>
-                ))}
-              </View>
-              <View style={{ width: 100 }}>
-                <Text
-                  style={[
-                    styles.tableCellText,
-                    { fontWeight: 600, marginBottom: 4 },
-                  ]}
-                >
-                  Steps
-                </Text>
-                <Text style={styles.tableCellText}>
-                  Current: {wf.currentState?.length || 0}
-                </Text>
-                <Text style={styles.tableCellText}>
-                  Target: {wf.targetState?.length || 0}
-                </Text>
-                <Text
-                  style={[styles.tableCellText, { marginTop: 4, color: GREEN }]}
-                >
-                  HITL:{" "}
-                  {
-                    (wf.targetState || []).filter(
-                      (n: any) => n.isHumanInTheLoop,
-                    ).length
-                  }
-                </Text>
-              </View>
-            </View>
-          </View>
-        );
-      })}
-
-      <PageFooter />
-    </Page>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Readiness Overview Page
-// ---------------------------------------------------------------------------
-function ReadinessPage({ props }: { props: PDFReportProps }) {
-  const { readiness } = props;
-  if (!readiness || readiness.length === 0) return null;
-
-  const cols = [
-    { label: "Use Case", width: "35%" as const },
-    { label: "Data", width: "10%" as const },
-    { label: "Tech", width: "10%" as const },
-    { label: "Org", width: "10%" as const },
-    { label: "Gov", width: "10%" as const },
-    { label: "Score", width: "12%" as const },
-    { label: "Token Cost", width: "13%" as const },
-  ];
-
-  return (
-    <Page size="A4" style={styles.page}>
-      <PageHeader companyName={props.companyName} />
-      <Text style={styles.sectionTitle}>Readiness Assessment</Text>
-
-      <View style={styles.tableHeader}>
-        {cols.map((c) => (
-          <Text
-            key={c.label}
-            style={[styles.tableHeaderText, { width: c.width }]}
-          >
-            {c.label}
-          </Text>
-        ))}
-      </View>
-
-      {readiness.map((r: any, i: number) => (
-        <View
-          key={r.useCaseId || `rd-${i}`}
-          style={[styles.tableRow, i % 2 === 1 ? styles.tableRowAlt : {}]}
-        >
-          <Text style={[styles.tableCellText, { width: "35%" }]}>
-            {r.useCaseName || "—"}
-          </Text>
-          <Text
-            style={[
-              styles.tableCellText,
-              { width: "10%", textAlign: "center" },
-            ]}
-          >
-            {r.dataAvailability ?? "—"}/10
-          </Text>
-          <Text
-            style={[
-              styles.tableCellText,
-              { width: "10%", textAlign: "center" },
-            ]}
-          >
-            {r.technicalInfrastructure ?? "—"}/10
-          </Text>
-          <Text
-            style={[
-              styles.tableCellText,
-              { width: "10%", textAlign: "center" },
-            ]}
-          >
-            {r.organizationalCapacity ?? "—"}/10
-          </Text>
-          <Text
-            style={[
-              styles.tableCellText,
-              { width: "10%", textAlign: "center" },
-            ]}
-          >
-            {r.governance ?? "—"}/10
-          </Text>
-          <Text
-            style={[
-              styles.tableCellText,
-              { width: "12%", fontWeight: 600, textAlign: "center" },
-            ]}
-          >
-            {r.readinessScore != null
-              ? `${(r.readinessScore * 10).toFixed(0)}%`
-              : "—"}
-          </Text>
-          <Text
-            style={[
-              styles.tableCellText,
-              { width: "13%", textAlign: "right" },
-            ]}
-          >
-            {r.annualTokenCost || "—"}
-          </Text>
-        </View>
-      ))}
-
-      <PageFooter />
-    </Page>
-  );
+  return [...m.entries()]
+    .map(([name, v]) => ({
+      name,
+      useCases: [...v.useCases],
+      totalStepReferences: v.refs,
+      integrationTypes: [...v.intg],
+    }))
+    .sort(
+      (a, b) =>
+        b.useCases.length - a.useCases.length ||
+        b.totalStepReferences - a.totalStepReferences,
+    );
 }
 
 // ---------------------------------------------------------------------------
 // Main Document
 // ---------------------------------------------------------------------------
 export function PDFReport(props: PDFReportProps) {
+  const workflows = (props.workflowMaps || []) as WorkflowMap[];
+  const rows = workflows.map(rowOf);
+  const totalHoursSaved = rows.reduce((s, r) => s + r.hoursSaved, 0);
+  const totalCostSaved = rows.reduce((s, r) => s + r.costSaved, 0);
+  const avgAutomation =
+    rows.length > 0
+      ? rows.reduce((s, r) => s + r.automationPct, 0) / rows.length
+      : 0;
+  const systems = aggregateSystems(workflows);
+
+  const ucNameMap = new Map<string, string>();
+  for (const uc of props.useCases || []) {
+    if (uc.id && uc.name) ucNameMap.set(uc.id, uc.name);
+  }
+  for (const wf of workflows) {
+    if (wf.useCaseId && wf.useCaseName) ucNameMap.set(wf.useCaseId, wf.useCaseName);
+  }
+  const resolveUcName = (id: string) => ucNameMap.get(id) || id;
+
   return (
     <Document
       title={`${props.companyName} — AI Workflow Assessment`}
@@ -1071,20 +1361,35 @@ export function PDFReport(props: PDFReportProps) {
       <CoverPage
         companyName={props.companyName}
         generatedAt={props.generatedAt}
+        totalHoursSaved={totalHoursSaved}
+        totalCostSaved={totalCostSaved}
       />
-      <DashboardMetricsPage props={props} />
-      <ExecutiveSummaryPage props={props} />
-      <UseCasesPage props={props} />
-      <BenefitsPage props={props} />
-      <WorkflowsPage props={props} />
-      <SystemsSummaryPage props={props} />
-      <ReadinessPage props={props} />
+      <ExecutiveSnapshotPage
+        companyName={props.companyName}
+        rows={rows}
+        totalHoursSaved={totalHoursSaved}
+        totalCostSaved={totalCostSaved}
+        avgAutomation={avgAutomation}
+      />
+      {workflows.length > 0 && (
+        <WorkflowsPage companyName={props.companyName} workflows={workflows} />
+      )}
+      {systems.length > 0 && (
+        <SystemsPage companyName={props.companyName} systems={systems} />
+      )}
+      {props.assessment?.scores && (
+        <AssessmentPage
+          companyName={props.companyName}
+          assessment={props.assessment}
+          resolveUcName={resolveUcName}
+        />
+      )}
     </Document>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Helper — generate a Blob for client-side download
+// Blob helper (used by Dashboard)
 // ---------------------------------------------------------------------------
 export async function generatePDFBlob(props: PDFReportProps): Promise<Blob> {
   const doc = <PDFReport {...props} />;

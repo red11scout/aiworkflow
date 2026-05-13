@@ -27,6 +27,7 @@ import {
   ArrowLeft,
   Download,
   FileJson,
+  FileText,
   Share2,
   Copy,
   Check,
@@ -51,6 +52,7 @@ export default function Dashboard() {
   const [shareLink, setShareLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [htmlLoading, setHtmlLoading] = useState(false);
   const [jsonLoading, setJsonLoading] = useState(false);
   const [shareLoading, setShareLoading] = useState(false);
 
@@ -105,7 +107,11 @@ export default function Dashboard() {
       const { generatePDFBlob } = await import("@/components/pdf/PDFReport");
       const blob = await generatePDFBlob({
         companyName,
-        generatedAt: new Date().toLocaleDateString(),
+        generatedAt: new Date().toLocaleDateString("en-US", {
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+        }),
         useCases: scenario.useCases || [],
         benefits: scenario.benefits || [],
         readiness: scenario.readiness || [],
@@ -114,6 +120,7 @@ export default function Dashboard() {
         strategicThemes: scenario.strategicThemes || [],
         frictionPoints: scenario.frictionPoints || [],
         executiveDashboard: scenario.executiveDashboard || {},
+        assessment: (scenario as any).assessment || null,
       });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -127,6 +134,35 @@ export default function Dashboard() {
       toast.error("Failed to generate PDF");
     } finally {
       setPdfLoading(false);
+    }
+  }
+
+  async function handleExportHTML() {
+    if (!projectId) return;
+    if (!scenario?.id) {
+      toast.error("No active scenario to export. Generate workflows first.");
+      return;
+    }
+    setHtmlLoading(true);
+    try {
+      const res = await apiRequest(
+        "POST",
+        `/api/projects/${projectId}/export/html`,
+        { scenarioId: scenario.id },
+      );
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${companyName.replace(/[^a-zA-Z0-9]/g, "_")}_AI_Workflow_Report.html`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("HTML report downloaded");
+    } catch (err: any) {
+      console.error("HTML export error:", err);
+      toast.error("Failed to export HTML");
+    } finally {
+      setHtmlLoading(false);
     }
   }
 
@@ -499,6 +535,15 @@ export default function Dashboard() {
                   >
                     <UserPlus className="w-4 h-4 mr-2" />
                     Customer Edit Link
+                  </Button>
+
+                  <Button
+                    onClick={handleExportHTML}
+                    disabled={htmlLoading}
+                    variant="outline"
+                  >
+                    <FileText className="w-4 h-4 mr-2" />
+                    {htmlLoading ? "Exporting..." : "Export HTML"}
                   </Button>
 
                   <Button

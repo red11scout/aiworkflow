@@ -1270,7 +1270,12 @@ Guidelines:
 
     const { generateHTMLReport } = await import("./export-service");
     const html = generateHTMLReport(project, scenario);
-    res.setHeader("Content-Type", "text/html");
+    const safeName = project.companyName.replace(/[^a-zA-Z0-9]/g, "_");
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${safeName}_AI_Workflow_Report.html"`,
+    );
     res.send(html);
   });
 
